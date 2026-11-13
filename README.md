@@ -1,4 +1,4 @@
-# 현대화 · Pleos Connect 네이티브 앱 0.6.0-rc5
+# 현대화 · Pleos Connect 네이티브 앱 0.6.0-rc6
 
 시연영상의 동작을 실제 Android/Pleos 앱에 이식한 검수 버전입니다. WebView로 시연사이트를 띄우거나 순정 내비 지도를 복제하지 않습니다. 순정 내비와 나란히 쓰는 창 배치는 Pleos 시스템이 맡습니다.
 
@@ -21,7 +21,7 @@
 - 246개 지역, 퀴즈 2,354개, 생활형 밸런스게임 505개를 기존 공유 데이터에서 포함합니다. 이번 작업은 이 데이터의 사실 출처를 새로 전수 조사한 것은 아닙니다.
 - Vehicle 2.3.2 / vehicle-data 1.1.11 / NaviHelper 3.0.5 / navi-data 3.0.4 / SpeechToText 3.3.1 / TextToSpeech 3.3.1
 - Java 17, Kotlin 2.0.21, Gradle 8.10.2, Android Gradle Plugin 8.8.2, compile/target SDK 35, min SDK 28
-- 출시: ai.hyundaehwa.car, versionCode 34. 기존 출시 서명키 유지
+- 출시: ai.hyundaehwa.car, versionCode 35. 기존 출시 서명키 유지
 - 별도 검수: ai.hyundaehwa.car.releaseqa. 출시와 같은 최적화·서명, 디버깅 불가
 - 개발 미리보기: ai.hyundaehwa.car.preview. 개발용 가상 신호·배속은 이 변형에만 존재
 
@@ -67,3 +67,8 @@ Android SDK를 설치하고 local.properties의 sdk.dir을 본인 환경에 설�
 ## 창 크기 변경 중 선택 복원 · rc5
 
 창 크기를 바꾸며 정차·UX 신호가 일시적으로 보류되어 관계 팝업을 닫은 경우, 관계를 아직 고르지 않았다면 실제 허용 상태가 복구된 뒤 선택창을 다시 엽니다. 정차 중 사용자가 직접 닫은 팝업을 반복해서 여는 동작은 추가하지 않습니다.
+
+
+## 음성 준비와 초기 설정 분리 · rc6
+
+음성 안내를 켠 실제 앱에서도 인사말 준비나 오디오 포커스 대기가 관계 선택 팝업을 막지 않습니다. 실제 정차·UX 허용·명시적 관계 선택 조건은 유지하며 음성 사용 설정을 켠 상태로 초기 팝업·실제 가족 선택·설정 동작을 검사합니다.

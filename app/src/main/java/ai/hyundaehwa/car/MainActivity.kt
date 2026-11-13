@@ -775,7 +775,7 @@ class MainActivity : Activity() {
         // Seat occupancy is only context; a person must explicitly choose the relationship.
         // A missing occupancy signal must not prevent manual selection while parked.
         if (!resumed || emulatorMode || automaticPassengerPromptShown || relationshipChosen || !canConfigure() ||
-            welcomePending || voiceState.active || parkedDialog != null || settingsOpen) return
+            parkedDialog != null || settingsOpen) return
         automaticPassengerPromptShown = true
         showPassengerDialog()
     }

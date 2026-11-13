@@ -72,7 +72,7 @@ class VideoParityUiIntegrationTest {
             val now = SystemClock.uptimeMillis()
             val down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x, y, 0)
             val up = MotionEvent.obtain(now, now + 50, MotionEvent.ACTION_UP, x, y, 0)
-            try { instrumentation.sendPointerSync(down); instrumentation.sendPointerSync(up) }
+            try { assertTrue(instrumentation.uiAutomation.injectInputEvent(down, true)); assertTrue(instrumentation.uiAutomation.injectInputEvent(up, true)) }
             finally { down.recycle(); up.recycle() }
             instrumentation.waitForIdleSync()
         }
@@ -100,7 +100,7 @@ class VideoParityUiIntegrationTest {
             val now = SystemClock.uptimeMillis()
             val down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x, y, 0)
             val up = MotionEvent.obtain(now, now + 50, MotionEvent.ACTION_UP, x, y, 0)
-            try { instrumentation.sendPointerSync(down); instrumentation.sendPointerSync(up) }
+            try { assertTrue(instrumentation.uiAutomation.injectInputEvent(down, true)); assertTrue(instrumentation.uiAutomation.injectInputEvent(up, true)) }
             finally { down.recycle(); up.recycle() }
             instrumentation.waitForIdleSync()
         }
@@ -113,7 +113,7 @@ class VideoParityUiIntegrationTest {
             tap(requireNotNull(title[0]))
         }
         try {
-            assertTrue(prefs.edit().putBoolean("spoken_guidance", false).putString("difficulty", "AUTO")
+            assertTrue(prefs.edit().putBoolean("spoken_guidance", true).putString("difficulty", "AUTO")
                 .putInt("silence_minutes", 5).putBoolean("audio_setup_seen", true).commit())
             activity = instrumentation.startActivitySync(Intent(context, MainActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)) as MainActivity
