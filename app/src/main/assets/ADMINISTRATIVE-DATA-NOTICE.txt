@@ -1,0 +1,14 @@
+Administrative conversation boundary data
+
+Boundary vintage: 2026-10-01
+Original geographic basis: Statistics Korea SGIS administrative boundaries.
+Processed boundary data: vuski/admdongkor, snapshot d5d5a821c8de6cc337d47eeca604d7af76271c9b, ver20261001.
+Source: https://github.com/vuski/admdongkor/tree/d5d5a821c8de6cc337d47eeca604d7af76271c9b/ver20261001
+Processed-data license: Creative Commons Attribution 4.0 International (CC BY 4.0).
+License: https://creativecommons.org/licenses/by/4.0/
+Upstream public-data attribution: KOGL Type 1 retained.
+
+The shared asset groups and simplifies boundaries for conversation-region selection.
+It is not a live administrative register or turn-by-turn navigation boundary service.
+Content provenance is stored separately on each topic. Preference and conversation cards are editorial questions with no correct answer; quiz fact sources and content tiers are identified in the asset.
+No vehicle coordinates, private addresses or route histories are stored in this file.

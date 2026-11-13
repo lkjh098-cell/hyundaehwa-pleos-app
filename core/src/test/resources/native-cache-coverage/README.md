@@ -1,0 +1,8 @@
+This snapshot checks actual Kotlin speech factories against the complete target catalog, independently of the web transcript generator.
+
+- `cards.tsv`: one original packaged card per row. Every field is UTF-8 Base64. Fields are id, format, title, question, correctChoiceId, explanation, sourceTitle, sourceUrl, sourceKind, contentNote, difficulty, bankVersion, optionCount; then id, label, directReply for each original option in its original order. Quiz direct replies follow the actual Android loader. These fixtures do not change source data, labels, choices, or correct IDs.
+- `catalog.tsv`: full target catalog text and filename, as Base64 fields. Test duration, binary hash and byte size are synthetic because this regression checks text coverage only; binary integrity is checked separately against final provenance and files.
+- `snapshot.properties`: original bank/catalog SHA256 and counts. The test compares the bank SHA against the currently packaged app data so stale fixtures fail visibly.
+- Regenerate with `python3 core/src/test/resources/native-cache-coverage/regenerate.py --catalog /absolute/path/to/ui/assets/speech-cache/catalog.json` from the native project. Use full `catalog.json`, never an incomplete metadata/provenance subset.
+
+For every card, the test uses all distinct original choice permutations (six for quiz, two for balance), calls actual `spokenPrompt` and `AnswerExplanation.text`, and matches every complete output with `CachedSpeechMatcher`. Balance timeout/reveal are checked to remain intentionally silent. Missing output text is written to `core/build/reports/native-cached-speech-coverage.txt`.

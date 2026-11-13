@@ -1,0 +1,16 @@
+.gradle/
+**/build/
+build/
+local.properties
+*.jks
+*.keystore
+*.p12
+*.pfx
+.env
+.env.*
+!.env.example
+*.aar
+*.apk
+source-recovery*.json
+.DS_Store
+.kotlin/

@@ -1,0 +1,57 @@
+{
+  "checkedAt": "2026-11-13",
+  "gleo": {
+    "activated": false,
+    "oemRecipientConfirmed": false,
+    "oemSignerConfirmed": false,
+    "schemaApproved": false,
+    "incomingCallerAuthenticated": false,
+    "contextBroadcastDefault": "disabled",
+    "publicSampleImplicitBroadcastUsed": false
+  },
+  "store": {
+    "submitted": false,
+    "approved": false,
+    "privacyPolicyPublicUrlConfirmed": false,
+    "locationTermsPublicUrlConfirmed": false,
+    "iarcEvidenceConfirmed": false,
+    "sdkPermissionApprovalConfirmed": false
+  },
+  "runtimeVerification": {
+    "officialEmulator": "Pleos Connect 2.1.0 API34 ARM64",
+    "releaseQaInstalledAndLaunched": true,
+    "verifiedParkConnection": true,
+    "carSpeedPermissionPromptVisible": false,
+    "speechAccuracyTested": false,
+    "audibleOutputTested": false,
+    "drivingUxTransitionTestedOnDevice": false,
+    "realVehicleTested": false,
+    "nativeRelationshipSettingsUiTestPassed": true,
+    "localSpeechBackendPlaybackTestsPassed": 3,
+    "microphoneLifecycleTestPassed": true,
+    "microphoneMeasurementsObserved": true,
+    "microphoneAccuracyTested": false,
+    "rc2UiIntegrationTestsPassed": 2,
+    "mapTilesVisible": false,
+    "actualOemRoutingVerified": false,
+    "automaticNavCompanionWindowArrangementVerified": false,
+    "priorRc1IntegrationTestsPassed": 7,
+    "rc2PanelMatchedToVideo": true
+  },
+  "build": {
+    "versionName": "0.6.0-rc2",
+    "versionCode": 31,
+    "releaseSigned": true,
+    "debuggable": false,
+    "coreTestsPassed": 240,
+    "lintErrors": 0,
+    "gleoDefaultDisabled": true,
+    "lintWarnings": 3
+  },
+  "parityLimits": {
+    "restEntranceCoverage": "Only Manghyang and Cheonan-Hodu southbound entrances verified, and only when present in current route data",
+    "cabinActivity": "RMS only, not speaker or conversation semantic classification; own speech interruption requires hardware AEC",
+    "weather": "Explicit user opt-in, destination forecast only; no manufactured source-vs-destination temperature comparison",
+    "generalGleoConversation": "OEM approval still required; no Gemini fallback in release"
+  }
+}

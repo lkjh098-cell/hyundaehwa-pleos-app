@@ -1,0 +1,15 @@
+시설 진입점과 도로 연결 © OpenStreetMap contributors, Open Database License (ODbL).
+https://www.openstreetmap.org/copyright
+망향휴게소 부산 방향: 경부고속도로 부산 방향 일방통행 way 100113736 → 진입로 way 124013608 → 내부 통로 way 124013615 또는 620568165.
+https://www.openstreetmap.org/way/124013608
+좌표는 진입로 끝 node 1381355246 (36.8558990, 127.1824692).
+천안호두휴게소 부산 방향: 경부고속도로 부산 방향 일방통행 way 43890653 → 천안호두휴게소 표지 진입로 way 27429943 → 내부 통로 way 620551831 또는 620551832.
+https://www.openstreetmap.org/way/27429943
+좌표는 진입로 끝 node 301145425 (36.7308416, 127.2624682).
+도로망 확인일 2026-11-06. 지도상 연결을 확인했으며 현장 출입 통제를 알 수 없습니다.
+휴게소 기록: https://www.data.go.kr/data/15025446/standard.do
+
+예보: MET Norway Locationforecast 2.0, Creative Commons Attribution 4.0.
+https://api.met.no/weatherapi/locationforecast/2.0/documentation
+https://creativecommons.org/licenses/by/4.0/
+현대화가 목적지 도착 시각에 가까운 시간대의 기온을 반올림하고 옷차림 문구로 변환합니다.

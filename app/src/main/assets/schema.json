@@ -1,0 +1,74 @@
+{
+  "packageName": "ai.hyundaehwa.car",
+  "appDescription": "A passenger conversation companion that provides conversation starters and controls its own proactive prompts.",
+  "invokeWord": "현대화",
+  "version": "0.3.0",
+  "actionCalls": [
+    {
+      "type": "function",
+      "function": {
+        "component": "activity",
+        "name": "GET_TALK_TOPIC",
+        "description": "Provides a short Korean regional balance game, general knowledge quiz or conversation card for the current administrative area confirmed locally from fresh vehicle coordinates. Returns public content and boundary metadata without raw coordinates, address or journey data.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "topicType": {
+              "type": "string",
+              "description": "Optional format. If omitted, rotate balance game, quiz and conversation card within the confirmed area. Legacy categories remain accepted.",
+              "enum": [
+                "balance",
+                "quiz",
+                "conversation",
+                "everyday",
+                "travel",
+                "preferences"
+              ]
+            }
+          },
+          "required": []
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "component": "activity",
+        "name": "SET_TALK_QUIET",
+        "description": "Pauses 현대화 proactive conversation prompts or resumes them after parking is confirmed.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Whether 현대화 quiet mode should be enabled."
+            }
+          },
+          "required": [
+            "enabled"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "component": "activity",
+        "name": "ANSWER_TALK_CARD",
+        "description": "Submits the passenger’s spoken choice for the currently displayed conversation card and returns its feedback.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "answer": {
+              "type": "string",
+              "description": "The single option name or number spoken by the passenger."
+            }
+          },
+          "required": [
+            "answer"
+          ]
+        }
+      }
+    }
+  ]
+}
