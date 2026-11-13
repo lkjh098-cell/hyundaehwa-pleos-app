@@ -9,27 +9,37 @@ object DestinationConversation {
     fun card(destination: String, relationship: Relationship, sequence: Int): AdministrativeConversationTopic? {
         val name = destination.trim().take(160)
         if (name.isBlank()) return null
-        val pair = when (relationship) {
-            Relationship.FAMILY -> "함께 먹을 간식부터 정하기" to "가족이 함께 둘러볼 계획 세우기"
-            Relationship.FRIEND -> "첫 끼 메뉴부터 함께 정하기" to "함께 남길 사진부터 계획하기"
-            Relationship.PARTNER -> "둘이 먹고 싶은 메뉴 정하기" to "천천히 함께 걸을 계획 세우기"
-            Relationship.COLLEAGUE, Relationship.BOSS -> "도착 후 일정부터 확인하기" to "잠깐 쉴 시간부터 정하기"
-            Relationship.STRANGER -> "도착하면 할 일 먼저 정하기" to "편하게 쉬는 계획 이야기하기"
-            Relationship.SOLO -> "가장 하고 싶은 한 가지 정하기" to "잠깐 쉬어 갈 계획 세우기"
+        val kind = when {
+            Regex("해수욕장|해변|해안|해운대|광안리|바닷가").containsMatchIn(name) -> "beach"
+            Regex("한옥|고택").containsMatchIn(name) -> "hanok"
+            Regex("박물관|미술관|전시관|기념관|과학관").containsMatchIn(name) -> "museum"
+            Regex("등산|국립공원|휴양림|숲길|설악산|지리산|한라산|북한산|남산|관악산|청계산|도봉산|속리산|오대산|팔공산|무등산|치악산").containsMatchIn(name) -> "mountain"
+            Regex("공원|수목원|정원|식물원").containsMatchIn(name) -> "park"
+            Regex("시장|장터").containsMatchIn(name) -> "market"
+            Regex("역|거리|광장|시청|백화점|쇼핑|도심|성수|홍대|명동|대학로").containsMatchIn(name) -> "city"
+            else -> "general"
         }
-        val question = when (sequence.mod(3)) {
-            0 -> "목적지인 ${name}에 도착하면 무엇부터 해볼까요?"
-            1 -> "${name}에서 보낼 시간을 미리 골라 볼까요?"
-            else -> "${name}에 도착한 뒤 가장 먼저 하고 싶은 일을 정해 볼까요?"
+        val together = when (relationship) {
+            Relationship.FAMILY -> "가족과"
+            Relationship.FRIEND -> "친구들과"
+            Relationship.PARTNER -> "연인과"
+            Relationship.COLLEAGUE -> "동료와"
+            Relationship.BOSS, Relationship.STRANGER -> "함께"
+            Relationship.SOLO -> "혼자"
         }
-        return AdministrativeConversationTopic("destination-${name.hashCode()}-$sequence", "conversation", "목적지 이야기", question,
-            listOf(AdministrativeConversationOption("first", pair.first), AdministrativeConversationOption("second", pair.second)),
-            mapOf("first" to "${pair.first} 쪽을 골랐네요. 구체적으로 어떤 계획이면 좋을지 이야기해 봐요.",
-                "second" to "${pair.second} 쪽을 골랐네요. 도착해서 하고 싶은 일을 하나 더 떠올려 봐요."),
-            sourceTitle = "직접 설정한 목적지 · 대화 제안", dataTier = "destination-editorial",
-            contentNote = "직접 정한 목적지로 만드는 대화 제안이며 실시간 영업·날씨 정보가 아니에요.",
-            sourceKind = SOURCE, contentVersion = "2026.11.07.editorial.1", rotationKey = "destination")
+        val choices = DestinationTemplates.choices.getValue(kind)
+        val item = choices[sequence.coerceAtLeast(0) % choices.size]
+        val options = listOf(
+            AdministrativeConversationOption("first", item.first, listOf(item.first) + item.firstKeywords),
+            AdministrativeConversationOption("second", item.second, listOf(item.second) + item.secondKeywords))
+        val replies = options.associate { it.id to "“${it.label}” 쪽이군요. 도착해서 하고 싶은 일을 편하게 이야기해 보세요." }
+        return AdministrativeConversationTopic("destination-${name.hashCode()}-$sequence", "conversation", "목적지에서 할 일",
+            "${name}에 도착하면 $together ${item.prompt}", options, replies,
+            sourceTitle = "현대화 · 목적지 대화", dataTier = "destination-editorial",
+            contentNote = "선택한 목적지에서 가능한 활동을 상상하는 창작 대화예요. 실제 이용 가능 여부·운영 시간·식당·날씨를 확인한 안내는 아니에요.",
+            sourceKind = SOURCE, contentVersion = "pleos-audio-layout-v46-20261113", rotationKey = "destination")
     }
+
     fun rotationCard(destination: String, relationship: Relationship, sequence: Int, areaId: String): AdministrativeConversationTopic? =
         card(destination, relationship, sequence)?.let { it.copy(id = "${it.id}-region-$areaId") }
     fun activeCard(state: ConversationState): AdministrativeConversationTopic? {

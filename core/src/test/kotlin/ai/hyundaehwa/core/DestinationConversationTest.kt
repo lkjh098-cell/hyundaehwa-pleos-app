@@ -17,17 +17,18 @@ class DestinationConversationTest {
     @Test fun destinationActivityStillUsesActualSelectedDestinationAsARegionalRotationCard() {
         val card = DestinationConversation.rotationCard("안목해변", Relationship.FRIEND, 0, "region")!!
         assertTrue(card.question.contains("안목해변")); assertEquals("destination", card.contentRotationKey)
-        assertTrue(card.contentNote.contains("실시간")); assertNull(card.correctChoiceId)
+        assertTrue(card.contentNote.contains("이용 가능")); assertNull(card.correctChoiceId)
         assertNull(DestinationConversation.card(" ", Relationship.FRIEND, 0))
     }
     @Test fun relationTailoringIsExplicitAndDoesNotInventBusinessesOrWeather() {
         val friend = assertNotNull(DestinationConversation.card("강릉", Relationship.FRIEND, 0))
         val partner = assertNotNull(DestinationConversation.card("강릉", Relationship.PARTNER, 0))
         val boss = assertNotNull(DestinationConversation.card("강릉", Relationship.BOSS, 0))
-        assertNotEquals(friend.options.map { it.label }, partner.options.map { it.label })
-        assertNotEquals(partner.options.map { it.label }, boss.options.map { it.label })
-        assertTrue(friend.options.any { it.label.contains("사진") })
-        assertTrue(boss.options.any { it.label.contains("일정") })
+        assertTrue(friend.question.contains("친구들과"))
+        assertTrue(partner.question.contains("연인과"))
+        assertTrue(boss.question.contains("함께"))
+        assertEquals(friend.options.map { it.label }, partner.options.map { it.label })
+        assertEquals(listOf("잠깐 쉬면서 하루를 천천히 시작해요", "쉬기 전에 가장 하고 싶던 일부터 해요"), friend.options.map { it.label })
         assertTrue(Relationship.entries.all { DestinationConversation.card("목적지", it, 0)?.options?.size == 2 })
     }
     @Test fun pendingOneHourRestDoesNotCoverAQuestionOrItsExplanation() {

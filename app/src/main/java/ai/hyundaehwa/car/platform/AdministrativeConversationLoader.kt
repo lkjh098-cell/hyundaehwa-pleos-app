@@ -81,7 +81,7 @@ object AdministrativeConversationLoader {
                     else -> "verified-place-fact"
                 }, correct,
                 text(value, "contentNote"), text(value, "sourceKind"), audience, value.optInt("difficulty", 2), version, explanation, spec,
-                value.optJSONObject("evidence")?.let { text(it, "placeName") }.orEmpty(), subject = text(value, "subject").ifBlank { "history" })
+                value.optJSONObject("evidence")?.let { text(it, "placeName") }.orEmpty(), subject = text(value, "subject").ifBlank { "history" }, factualIntro = text(value, "factualIntro"))
         }
     }
     @Synchronized fun load(assets: AssetManager): AdministrativeConversationCatalog? {

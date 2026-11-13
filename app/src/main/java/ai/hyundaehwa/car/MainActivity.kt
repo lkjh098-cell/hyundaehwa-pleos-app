@@ -941,8 +941,8 @@ class MainActivity : Activity() {
         val header = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(dp(16), dp(10), dp(12), dp(10)); setBackgroundColor(teal) }
         header.addView(conversationMark(if (compactShell) 40 else 48))
         val brand = column().apply { setPadding(dp(if (compactShell) 9 else 13), 0, dp(if (compactShell) 10 else 22), 0) }
-        brand.addView(text("현대화", 20f, Color.WHITE, true))
-        brand.addView(text("차량 대화 도우미", 12f, selectedFill).apply { setPadding(0, dp(3), 0, 0) })
+        brand.addView(text("현대화", 24f, Color.WHITE, true))
+        brand.addView(text("차량 대화 도우미", 16f, selectedFill).apply { setPadding(0, dp(3), 0, 0) })
         header.addView(brand, LinearLayout.LayoutParams(0, -2, 1f))
         headerStatus = text("— · 차량 연결 대기", 12f, selectedFill).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
         headerStatus.visibility = View.GONE
@@ -952,14 +952,14 @@ class MainActivity : Activity() {
             parked { settingsOpen = true; render(force = true) }
         }.apply { contentDescription = "설정 열기"; minWidth = 0; minimumWidth = 0 })
         root.addView(header, LinearLayout.LayoutParams(-1, -2))
-        passengerStatus = text(ConversationPresentation.passengerLabel(null), 18f, teal, true).apply {
+        passengerStatus = text(ConversationPresentation.passengerLabel(null), 20f, teal, true).apply {
             setPadding(dp(16), dp(9), dp(16), dp(3)); setBackgroundColor(Color.TRANSPARENT)
             maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
         }
         // A persistent shell element: cards, focus/quiet mode and narrow settings never hide it.
         root.addView(passengerStatus, LinearLayout.LayoutParams(-1, -2))
-        activityStatusTextView = text("차량 상태를 확인하고 있어요", 14f, muted).apply {
+        activityStatusTextView = text("차량 상태를 확인하고 있어요", 18f, muted).apply {
             setPadding(dp(16), dp(3), dp(16), dp(6)); maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
             contentDescription = text
@@ -968,7 +968,7 @@ class MainActivity : Activity() {
             }
         }
         root.addView(activityStatusTextView, LinearLayout.LayoutParams(-1, -2))
-        destinationAction = text("목적지 설정 · 순정 내비 열기  ›", 13f, teal, true).apply {
+        destinationAction = text("목적지 설정 · 순정 내비 열기  ›", 18f, teal, true).apply {
             setPadding(dp(16), dp(5), dp(16), dp(8)); maxLines = 1
             setOnClickListener {
                 parked {
@@ -997,22 +997,22 @@ class MainActivity : Activity() {
         composer = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(6), 0, 0) }
         composerInput = EditText(this).apply {
             hint = "현대화에게 답하기"; setSingleLine(true); setTextColor(ink); setHintTextColor(muted); typeface = appFont
-            textSize = 16f; setPadding(dp(14), 0, dp(14), 0); background = rounded(selectedFill, 12)
+            textSize = 19f; setPadding(dp(14), 0, dp(14), 0); background = rounded(selectedFill, 12)
             setSaveEnabled(false); filters = arrayOf(android.text.InputFilter.LengthFilter(1000))
             imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEND
             setOnEditorActionListener { _, action, _ ->
                 if (action == android.view.inputmethod.EditorInfo.IME_ACTION_SEND) { submitComposer(); true } else false
             }
         }
-        composer.addView(composerInput, LinearLayout.LayoutParams(0, dp(48), 1f))
-        composer.addView(button("보내기", teal, Color.WHITE) { submitComposer() }, LinearLayout.LayoutParams(dp(76), dp(48)).apply { leftMargin = dp(6) })
+        composer.addView(composerInput, LinearLayout.LayoutParams(0, dp(58), 1f))
+        composer.addView(button("보내기", teal, Color.WHITE) { submitComposer() }, LinearLayout.LayoutParams(dp(100), dp(58)).apply { leftMargin = dp(6) })
         composer.addView(ImageButton(this).apply {
             setImageResource(R.drawable.ic_composer_mic); background = buttonBackground(selectedFill)
             contentDescription = "음성으로 답하기"; scaleType = ImageView.ScaleType.CENTER
             setOnClickListener { composerVoice() }
-        }, LinearLayout.LayoutParams(dp(56), dp(48)).apply { leftMargin = dp(6) })
+        }, LinearLayout.LayoutParams(dp(62), dp(58)).apply { leftMargin = dp(6) })
         root.addView(composer.apply { setPadding(dp(14), dp(6), dp(14), dp(6)) })
-        root.addView(quietButton.apply { textSize = 15f }, LinearLayout.LayoutParams(-1, dp(52)).apply { setMargins(dp(14), 0, dp(14), dp(12)) })
+        root.addView(quietButton.apply { textSize = 19f }, LinearLayout.LayoutParams(-1, dp(58)).apply { setMargins(dp(14), 0, dp(14), dp(12)) })
         val footer = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(6), 0, 0) }
         footerStatus = text("차량 신호 연결 대기", 11f, muted)
         footer.addView(footerStatus, LinearLayout.LayoutParams(0, -2, 1f))
@@ -1241,7 +1241,7 @@ class MainActivity : Activity() {
                     dispatch(ConversationEvent.SilenceThresholdChanged(minutes * 60_000L))
                     render(force = true)
                 }
-            }.apply { isEnabled = canConfigure(); textSize = 14f }, LinearLayout.LayoutParams(0, dp(48), 1f))
+            }.apply { isEnabled = canConfigure(); textSize = 18f; minWidth = 0; minimumWidth = 0; setPadding(dp(4), 0, dp(4), 0) }, LinearLayout.LayoutParams(0, dp(58), 1f).apply { rightMargin = dp(4) })
         }
         sideContent.addView(silenceRow)
         sideContent.addView(text("기본 5분 · 소리 입력을 확인할 수 없으면 자동 제안을 보류해요.", 12f, muted))
@@ -1250,7 +1250,7 @@ class MainActivity : Activity() {
         DifficultyMode.entries.forEach { mode -> difficultyRow.addView(button(mode.label,
             if (difficultyMode == mode) teal else Color.WHITE, if (difficultyMode == mode) Color.WHITE else ink) {
             parked { difficultyMode = mode; saveProfile(); dispatch(ConversationEvent.PreferencesChanged); refreshRegionalTopics(); render(force = true) }
-        }.apply { isEnabled = canConfigure() }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { rightMargin = dp(4) }) }
+        }.apply { isEnabled = canConfigure(); minWidth = 0; minimumWidth = 0; setPadding(dp(4), 0, dp(4), 0) }, LinearLayout.LayoutParams(0, dp(58), 1f).apply { rightMargin = dp(4) }) }
         sideContent.addView(difficultyRow)
         sideContent.addView(text(if (difficultyMode == DifficultyMode.AUTO)
             "자동 · 현재 ${QuestionDifficulty.label(effectiveDifficulty)} 난이도" else "선택한 ${QuestionDifficulty.label(effectiveDifficulty)} 난이도로 안내해요", 14f, teal, true).apply { setPadding(0, dp(10), 0, dp(4)) })
@@ -1408,7 +1408,7 @@ class MainActivity : Activity() {
             group.forEach { relation ->
                 line.addView(button(relation.label, if (relationshipChosen && state.relationship == relation) teal else selectedFill,
                     if (relationshipChosen && state.relationship == relation) Color.WHITE else ink) { chooserVoice.cancel(); select(relation) },
-                    LinearLayout.LayoutParams(0, dp(56), 1f).apply { setMargins(0, 0, dp(6), dp(6)) })
+                    LinearLayout.LayoutParams(0, dp(68), 1f).apply { setMargins(0, 0, dp(8), dp(8)) })
             }
             choices.addView(line)
         }
@@ -1420,6 +1420,8 @@ class MainActivity : Activity() {
             if (parkedDialog === dialog) parkedDialog = null
         }
         dialog.show()
+        dialog.window?.setLayout((resources.displayMetrics.widthPixels * .92f).toInt().coerceAtMost(dp(680)), android.view.WindowManager.LayoutParams.WRAP_CONTENT)
+        dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.apply { textSize = 19f; typeface = appFont }
     }
     private fun submitComposer() {
         val message = composerInput.text.toString().trim()
@@ -1472,15 +1474,31 @@ class MainActivity : Activity() {
     }
     private fun renderBankCard(content: LinearLayout, item: AdministrativeConversationTopic) {
         if (choiceCardId != item.id) { choiceCardId = item.id; selectedChoiceId = null; heardChoice = null; answerVisible = false; unansweredReveal = false }
-        val card = column().apply { setPadding(dp(25), dp(24), dp(25), dp(20)); background = messageBackground() }
+        val card = column().apply { setPadding(dp(24), dp(24), dp(24), dp(22)); background = questionCardBackground() }
         val name = when {
             item.sourceKind == DestinationConversation.SOURCE -> "목적지 이야기"
             item.format == "quiz" -> "위치 기반 퀴즈 · ${QuestionDifficulty.label(item.difficulty)}"
             item.format == "balance" -> BalancePresentation.TITLE
             else -> "이곳의 이야기"
         }
-        card.addView(text(name, 14f, teal, true))
+        card.addView(text(name, 16f, teal, true))
+        item.title.trim().takeIf { it.isNotEmpty() && it != item.question }?.let { title ->
+            card.addView(text(title, 24f, ink, true).apply { setPadding(0, dp(16), 0, dp(3)) })
+        }
+        pinnedRegionId?.let { id -> administrativeCatalog?.areaById(id)?.label }?.takeIf { it.isNotBlank() }?.let { area ->
+            card.addView(text(area, 16f, muted).apply { setPadding(0, dp(4), 0, 0) })
+        }
         card.addView(text(if (item.format == "balance") BalancePresentation.questionBody(item.question) else item.question, if (resources.configuration.screenWidthDp < 600) 22f else 26f, ink, true).apply { setPadding(0, dp(16), 0, dp(16)); setLineSpacing(dp(7).toFloat(), 1f) })
+        item.options.forEachIndexed { index, choice ->
+            val selected = selectedChoiceId == choice.id
+            card.addView(button("${index + 1}  ${choice.label}", if (selected) teal else selectedFill, if (selected) Color.WHITE else ink) {
+                parked {
+                    selectedChoiceId = choice.id; heardChoice = null; answerScrollPending = true; revealPinned()
+                    render(force = true)
+                }
+            }.apply { isEnabled = canConfigure() && !answerVisible; textSize = 22f; minHeight = dp(68); minimumHeight = dp(68); gravity = Gravity.CENTER_VERTICAL or Gravity.START
+                if (selected && answerVisible) { background = rounded(teal, 14); setTextColor(Color.WHITE) } }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
+        }
         if (!answerVisible) {
             val input = answerVoiceState.takeIf { it.cardId == item.id }
             val listeningLabel = when (input?.phase) {
@@ -1496,15 +1514,6 @@ class MainActivity : Activity() {
                 else if (input?.active == true) answerVoice?.cancel("음성 답변을 멈췄어요. 화면에서도 고를 수 있어요.")
                 else { answerVoiceAttemptedCardId = null; startAnswerVoice(item, interruptPrompt = true) }
             })
-        }
-        item.options.forEachIndexed { index, choice ->
-            val selected = selectedChoiceId == choice.id
-            card.addView(button("${index + 1}  ${choice.label}", if (selected) teal else Color.WHITE, if (selected) Color.WHITE else ink) {
-                parked {
-                    selectedChoiceId = choice.id; heardChoice = null; answerScrollPending = true; revealPinned()
-                    render(force = true)
-                }
-            }.apply { isEnabled = canConfigure() && !answerVisible; textSize = 20f; minHeight = dp(64); minimumHeight = dp(64); gravity = Gravity.CENTER_VERTICAL or Gravity.START }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
         }
         if (item.format == "quiz" && selectedChoiceId == null && !answerVisible) {
             card.addView(button("정답 보기", Color.TRANSPARENT, teal) { parked {
@@ -1871,12 +1880,15 @@ class MainActivity : Activity() {
         revealMessage(chip)
     }
     private fun dialogHeader(title: String): View = column().apply {
-        setPadding(dp(22), dp(18), dp(22), dp(18)); setBackgroundColor(teal)
-        addView(text(title, 22f, Color.WHITE, true))
+        setPadding(dp(24), dp(20), dp(24), dp(20)); setBackgroundColor(teal)
+        addView(text(title, 26f, Color.WHITE, true))
         addView(text("현대화 · 차량 대화 도우미", 12f, selectedFill).apply { setPadding(0, dp(5), 0, 0) })
     }
     private fun messageBackground() = GradientDrawable().apply {
-        setColor(messageFill); cornerRadius = dp(16).toFloat()
+        setColor(messageFill); cornerRadius = dp(18).toFloat()
+    }
+    private fun questionCardBackground() = GradientDrawable().apply {
+        setColor(Color.WHITE); cornerRadius = dp(20).toFloat(); setStroke(dp(1), accentBorder)
     }
     private fun revealMessage(view: View) {
         if (android.animation.ValueAnimator.areAnimatorsEnabled()) {
@@ -1894,10 +1906,10 @@ class MainActivity : Activity() {
     private fun column() = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
     private fun row() = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
     private fun text(value: String, size: Float, color: Int = ink, bold: Boolean = false) = TextView(this).apply {
-        text = value; textSize = size; setTextColor(color); typeface = Typeface.create(appFont, if (bold) 600 else 400, false); includeFontPadding = false
+        text = value; textSize = size.coerceAtLeast(16f); setTextColor(color); typeface = Typeface.create(appFont, if (bold) 600 else 400, false); includeFontPadding = false
     }
     private fun button(label: String, backgroundColor: Int = Color.TRANSPARENT, color: Int = ink, action: () -> Unit): Button = Button(this).apply {
-        text = label; textSize = 15f; typeface = Typeface.create(appFont, 600, false); isAllCaps = false; setTextColor(ColorStateList(arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()), intArrayOf(Color.rgb(150, 154, 158), if (backgroundColor == teal) Color.WHITE else color))); background = buttonBackground(backgroundColor); setPadding(dp(16), dp(9), dp(16), dp(9)); minHeight = dp(48); minimumHeight = dp(48); setOnClickListener { action() }
+        text = label; textSize = 20f; typeface = Typeface.create(appFont, 600, false); isAllCaps = false; setTextColor(ColorStateList(arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()), intArrayOf(Color.rgb(150, 154, 158), if (backgroundColor == teal) Color.WHITE else color))); background = buttonBackground(backgroundColor); stateListAnimator = null; elevation = 0f; setPadding(dp(16), dp(9), dp(16), dp(9)); minHeight = dp(56); minimumHeight = dp(56); minWidth = 0; minimumWidth = 0; setOnClickListener { action() }
     }
     private fun buttonBackground(color: Int): RippleDrawable {
         val primary = color == teal

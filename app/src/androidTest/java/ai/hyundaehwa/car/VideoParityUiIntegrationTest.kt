@@ -1,11 +1,13 @@
 package ai.hyundaehwa.car
 
 import ai.hyundaehwa.car.platform.PlatformSnapshot
+import ai.hyundaehwa.core.ConversationState
 import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.graphics.Rect
 import android.os.SystemClock
+import android.os.Bundle
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -51,10 +53,39 @@ class VideoParityUiIntegrationTest {
             }
             fail("Timed out waiting for $description; real P / zero speed and unrestricted UX are required")
         }
+        fun observeFor(ms: Long, condition: () -> Boolean): Boolean {
+            val until = minOf(deadline, SystemClock.elapsedRealtime() + ms)
+            while (SystemClock.elapsedRealtime() < until) {
+                var ok = false
+                instrumentation.runOnMainSync { ok = condition() }
+                if (ok) return true
+                Thread.sleep(100)
+            }
+            return false
+        }
         fun mainButton(label: String): View? = find(activity!!.window.decorView, label, true)
         fun settingsButton(label: String): View? {
             val dialog = field("settingsDialog") as? AlertDialog ?: return null
             return if (dialog.isShowing) dialog.window?.decorView?.let { find(it, label, true) } else null
+        }
+        fun tapPoint(x: Float, y: Float) {
+            val now = SystemClock.uptimeMillis()
+            val down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x, y, 0)
+            val up = MotionEvent.obtain(now, now + 50, MotionEvent.ACTION_UP, x, y, 0)
+            try { instrumentation.sendPointerSync(down); instrumentation.sendPointerSync(up) }
+            finally { down.recycle(); up.recycle() }
+            instrumentation.waitForIdleSync()
+        }
+        fun tapNavigationPane() {
+            val bounds = Rect()
+            instrumentation.runOnMainSync { assertTrue(activity!!.window.decorView.getGlobalVisibleRect(bounds)) }
+            val screen = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
+            val width = screen.width; val height = screen.height; screen.recycle()
+            // On the official three-pane fixture, the left third is the driving view.
+            // The navigation pane is the half of the remaining screen opposite the preview.
+            val navigationX = if (bounds.centerX() < width * 2 / 3) (bounds.right + width) / 2f
+                else (width / 3f + bounds.left) / 2f
+            tapPoint(navigationX, height * .32f)
         }
         fun tap(view: View) {
             instrumentation.runOnMainSync {
@@ -73,6 +104,14 @@ class VideoParityUiIntegrationTest {
             finally { down.recycle(); up.recycle() }
             instrumentation.waitForIdleSync()
         }
+        fun tapChooserHeader() {
+            val title = arrayOfNulls<View>(1)
+            instrumentation.runOnMainSync {
+                val dialog = field("parkedDialog") as AlertDialog
+                title[0] = find(dialog.window!!.decorView, "누구와 함께 가세요?")
+            }
+            tap(requireNotNull(title[0]))
+        }
         try {
             assertTrue(prefs.edit().putBoolean("spoken_guidance", false).putString("difficulty", "AUTO")
                 .putInt("silence_minutes", 5).putBoolean("audio_setup_seen", true).commit())
@@ -82,22 +121,44 @@ class VideoParityUiIntegrationTest {
                 val dialog = field("parkedDialog") as? AlertDialog
                 dialog?.isShowing == true && find(dialog.window!!.decorView, "가족", true) != null
             }
-            // The actual OEM navigation Activity backgrounds this panel, as during destination setup.
+            // Existing split-screen tasks may start visible without focused input.
+            tapChooserHeader()
+            val initialFocusObserved = observeFor(2_000L) {
+                (field("parkedDialog") as? AlertDialog)?.window?.decorView?.hasWindowFocus() == true
+            }
+            // In split screen the actual OEM navigation Activity can take focus without pausing this panel.
             val firstDialog = arrayOfNulls<AlertDialog>(1)
             instrumentation.runOnMainSync {
                 firstDialog[0] = field("parkedDialog") as AlertDialog
                 context.startActivity(Intent().setClassName("ai.umos.maps.android.navigation.app", "ai.umos.maps.android.navigation.app.MainActivity")
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             }
-            waitFor("panel paused while OEM navigation is in front") { field("resumed") == false }
+            tapNavigationPane()
+            val navigationFocusChangeObserved = observeFor(3_000L) {
+                field("resumed") == false || firstDialog[0]?.window?.decorView?.hasWindowFocus() != true
+            }
+            // Let a possible onPause arrive before recording which lifecycle path was exercised.
+            Thread.sleep(250L)
+            var wasPaused = false
             instrumentation.runOnMainSync {
+                wasPaused = field("resumed") == false
                 context.startActivity(Intent(context, MainActivity::class.java)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
             }
             waitFor("unfinished relationship chooser restored after returning from navigation") {
                 val dialog = field("parkedDialog") as? AlertDialog
-                dialog !== firstDialog[0] && dialog?.isShowing == true && find(dialog.window!!.decorView, "가족", true) != null
+                (!wasPaused || dialog !== firstDialog[0]) && dialog?.isShowing == true &&
+                    find(dialog.window!!.decorView, "가족", true) != null
             }
+            tapChooserHeader()
+            val returnFocusObserved = observeFor(2_000L) {
+                (field("parkedDialog") as? AlertDialog)?.window?.decorView?.hasWindowFocus() == true
+            }
+            instrumentation.sendStatus(0, Bundle().apply {
+                putString("navigation_return_lifecycle", "paused=$wasPaused; initialChooserFocus=$initialFocusObserved; " +
+                    "navigationFocusChange=$navigationFocusChangeObserved; returnedChooserFocus=$returnFocusObserved; " +
+                    "subsequent family selection verifies real touch handling")
+            })
             val family = arrayOfNulls<View>(1)
             instrumentation.runOnMainSync {
                 val actual = field("currentSnapshot") as PlatformSnapshot
@@ -107,11 +168,21 @@ class VideoParityUiIntegrationTest {
                 assertEquals(true, actual.uxAllowsSetup)
                 val dialog = field("parkedDialog") as AlertDialog
                 family[0] = find(dialog.window!!.decorView, "가족", true)
+                val familyButton = family[0] as TextView
+                val scaledDensity = context.resources.displayMetrics.scaledDensity
+                assertTrue("Relationship choices need readable type", familyButton.textSize / scaledDensity >= 19f)
+                assertTrue("Relationship choices need a large touch target", familyButton.height / context.resources.displayMetrics.density >= 60f)
             }
             tap(family[0]!!)
             waitFor("persistent family relationship chip") {
                 val chip = field("passengerStatus") as TextView
                 chip.isShown && chip.text.toString().contains("가족") && field("relationshipChosen") == true
+            }
+            instrumentation.runOnMainSync {
+                assertTrue("Selecting a relationship starts guidance", (field("state") as ConversationState).enabled)
+                val status = field("activityStatusTextView") as TextView
+                assertTrue("Activity status remains visible and readable", status.isShown && status.textSize / context.resources.displayMetrics.scaledDensity >= 17f)
+                assertTrue("Answer input remains available at the bottom", (field("composerInput") as View).isShown)
             }
             waitFor("settings gear") { mainButton("⚙ 설정")?.isShown == true }
             val gear = arrayOfNulls<View>(1)
@@ -122,7 +193,11 @@ class VideoParityUiIntegrationTest {
                     .all { settingsButton(it) != null }
             }
             val high = arrayOfNulls<View>(1)
-            instrumentation.runOnMainSync { high[0] = settingsButton("상") }
+            instrumentation.runOnMainSync {
+                high[0] = settingsButton("상")
+                val highButton = high[0] as TextView
+                assertTrue("Difficulty choice must use readable type", highButton.textSize / context.resources.displayMetrics.scaledDensity >= 19f)
+            }
             tap(high[0]!!)
             waitFor("high difficulty selection") { prefs.getString("difficulty", null) == "HIGH" }
             val threeMinutes = arrayOfNulls<View>(1)

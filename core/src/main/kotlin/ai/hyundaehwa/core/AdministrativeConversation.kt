@@ -11,7 +11,7 @@ data class AdministrativeConversationTopic(
     val sourceTitle: String = "", val sourceUrl: String = "", val dataTier: String = "administrative-basic",
     val correctChoiceId: String? = null, val contentNote: String = "", val sourceKind: String = "editorial-preference",
     val audiences: Set<String> = setOf("family", "adult"), val difficulty: Int = 2,
-    val contentVersion: String = "", val explanation: String = "", val specificity: Int = 1, val placeName: String = "", val rotationKey: String = "", val subject: String = "history"
+    val contentVersion: String = "", val explanation: String = "", val specificity: Int = 1, val placeName: String = "", val rotationKey: String = "", val subject: String = "history", val factualIntro: String = ""
 ) {
     val contentRotationKey: String get() = rotationKey.ifBlank { when {
         sourceKind == DestinationConversation.SOURCE -> "destination"
