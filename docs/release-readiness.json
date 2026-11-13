@@ -1,5 +1,5 @@
 {
-  "checkedAt": "2026-11-13",
+  "checkedAt": "2026-11-14",
   "gleo": {
     "activated": false,
     "oemRecipientConfirmed": false,
@@ -36,11 +36,13 @@
     "actualOemRoutingVerified": false,
     "automaticNavCompanionWindowArrangementVerified": false,
     "priorRc1IntegrationTestsPassed": 7,
-    "rc2PanelMatchedToVideo": true
+    "rc3NavigationReturnUiTestPassed": true,
+    "vehiclePermissionRequiredBeforeSetup": true,
+    "oemMapTileRenderingResolved": false
   },
   "build": {
-    "versionName": "0.6.0-rc2",
-    "versionCode": 31,
+    "versionName": "0.6.0-rc3",
+    "versionCode": 32,
     "releaseSigned": true,
     "debuggable": false,
     "coreTestsPassed": 240,

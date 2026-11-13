@@ -82,6 +82,22 @@ class VideoParityUiIntegrationTest {
                 val dialog = field("parkedDialog") as? AlertDialog
                 dialog?.isShowing == true && find(dialog.window!!.decorView, "가족", true) != null
             }
+            // The actual OEM navigation Activity backgrounds this panel, as during destination setup.
+            val firstDialog = arrayOfNulls<AlertDialog>(1)
+            instrumentation.runOnMainSync {
+                firstDialog[0] = field("parkedDialog") as AlertDialog
+                context.startActivity(Intent().setClassName("ai.umos.maps.android.navigation.app", "ai.umos.maps.android.navigation.app.MainActivity")
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+            waitFor("panel paused while OEM navigation is in front") { field("resumed") == false }
+            instrumentation.runOnMainSync {
+                context.startActivity(Intent(context, MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+            }
+            waitFor("unfinished relationship chooser restored after returning from navigation") {
+                val dialog = field("parkedDialog") as? AlertDialog
+                dialog !== firstDialog[0] && dialog?.isShowing == true && find(dialog.window!!.decorView, "가족", true) != null
+            }
             val family = arrayOfNulls<View>(1)
             instrumentation.runOnMainSync {
                 val actual = field("currentSnapshot") as PlatformSnapshot

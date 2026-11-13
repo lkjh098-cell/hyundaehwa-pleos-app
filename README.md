@@ -1,4 +1,4 @@
-# 현대화 · Pleos Connect 네이티브 앱 0.6.0-rc2
+# 현대화 · Pleos Connect 네이티브 앱 0.6.0-rc3
 
 시연영상의 동작을 실제 Android/Pleos 앱에 이식한 검수 버전입니다. WebView로 시연사이트를 띄우거나 순정 내비 지도를 복제하지 않습니다. 순정 내비와 나란히 쓰는 창 배치는 Pleos 시스템이 맡습니다.
 
@@ -21,7 +21,7 @@
 - 246개 지역, 퀴즈 2,354개, 생활형 밸런스게임 505개를 기존 공유 데이터에서 포함합니다. 이번 작업은 이 데이터의 사실 출처를 새로 전수 조사한 것은 아닙니다.
 - Vehicle 2.3.2 / vehicle-data 1.1.11 / NaviHelper 3.0.5 / navi-data 3.0.4 / SpeechToText 3.3.1 / TextToSpeech 3.3.1
 - Java 17, Kotlin 2.0.21, Gradle 8.10.2, Android Gradle Plugin 8.8.2, compile/target SDK 35, min SDK 28
-- 출시: ai.hyundaehwa.car, versionCode 31. 기존 출시 서명키 유지
+- 출시: ai.hyundaehwa.car, versionCode 32. 기존 출시 서명키 유지
 - 별도 검수: ai.hyundaehwa.car.releaseqa. 출시와 같은 최적화·서명, 디버깅 불가
 - 개발 미리보기: ai.hyundaehwa.car.preview. 개발용 가상 신호·배속은 이 변형에만 존재
 
@@ -48,3 +48,7 @@ Android SDK를 설치하고 local.properties의 sdk.dir을 본인 환경에 설�
 에뮬레이터 순정 지도는 현대화 앱을 닫고 단독 실행해도 도로 타일이 비어 있습니다. 소프트웨어 그래픽은 이 이미지에서 전체 화면 렌더링 문제를 일으켰고, 하드웨어 그래픽/Vulkan 비활성으로 일반 화면은 복구했으나 지도 타일 표시 성공은 아직 확인하지 못했습니다. 공개 서울시청 좌표를 시험 입력했으며 사용자의 실제 위치는 사용하지 않았습니다. 지도 렌더링과 실제 검색·경로 계산은 완료 항목이 아닙니다. 이 앱은 이를 복제 지도나 가짜 주행으로 대신하지 않습니다.
 
 현재 원격 소스 저장소: https://github.com/lkjh098-cell/hyundaehwa-pleos-app (비공개)
+
+## 내비 복귀 · rc3
+
+관계를 아직 선택하지 않은 채 내비로 이동했다 돌아오면 관계 팝업을 다시 엽니다. 같은 화면에서 사용자가 직접 닫은 팝업을 매 초 강제로 다시 띄우지는 않습니다. 실제 OEM 내비 Activity로 이동·복귀하는 화면 테스트로 검증합니다.

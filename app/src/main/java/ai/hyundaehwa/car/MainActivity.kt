@@ -438,6 +438,7 @@ class MainActivity : Activity() {
         render(force = true)
     }
     override fun onResume() {
+        if (!relationshipChosen) automaticPassengerPromptShown = false
         super.onResume(); if (pausedAt > 0 && pinnedCard != null) { val gap = SystemClock.elapsedRealtime() - pausedAt; pinnedShownAt += gap; if (revealedAt > 0) revealedAt += gap }; pausedAt = 0; resumed = true; welcomePending = intent?.action !in GleoTalkActions.names; if (!emulatorMode) bridge?.start(); lastTick = SystemClock.elapsedRealtime(); handler.post(tick)
     }
     override fun onPause() {
