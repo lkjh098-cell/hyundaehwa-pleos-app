@@ -1063,7 +1063,12 @@ class MainActivity : Activity() {
     }
     private fun render(force: Boolean = false) {
         if (!::body.isInitialized) return
-        if (!canConfigure()) parkedDialog?.dismiss()
+        if (!canConfigure() && parkedDialog?.isShowing == true) {
+            // A split-window transition can temporarily withdraw parked/UX evidence.
+            // Restore unfinished setup when genuine permission to configure returns.
+            if (!relationshipChosen) automaticPassengerPromptShown = false
+            parkedDialog?.dismiss()
+        }
         val view = HyundaehwaEngine.view(state)
         val awaitingGuidance = !emulatorMode && state.enabled && view.status == "focus" && currentSnapshot.nearManeuver == null
         val title = if (awaitingGuidance) "경로 안내 확인 중" else view.statusTitle

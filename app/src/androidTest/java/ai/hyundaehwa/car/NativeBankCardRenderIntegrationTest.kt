@@ -83,7 +83,8 @@ class NativeBankCardRenderIntegrationTest {
                     realParkedReady = snapshot.vehicleConnected && snapshot.gear == "P" &&
                         snapshot.speedKph != null && kotlin.math.abs(snapshot.speedKph!!) < .001 &&
                         snapshot.uxAllowsSetup == true && fresh(snapshot.gearUpdatedAtMs) && fresh(snapshot.speedUpdatedAtMs) &&
-                        (field("composerInput").get(activity) as View).isShown
+                        (field("composerInput").get(activity) as View).isShown &&
+                        (field("parkedDialog").get(activity) as? AlertDialog)?.isShowing == true
                 }
                 if (!realParkedReady) Thread.sleep(100)
             }
@@ -129,6 +130,13 @@ class NativeBankCardRenderIntegrationTest {
                     snapshot.speedUpdatedAtMs?.let { now - it in 0..8_000L } == true &&
                     (field("composerInput").get(activity) as View).isShown)
             }
+            val chooserDeadline = SystemClock.elapsedRealtime() + 15_000L
+            var chooserRestored = false
+            while (SystemClock.elapsedRealtime() < chooserDeadline && !chooserRestored) {
+                instrumentation.runOnMainSync { chooserRestored = (field("parkedDialog").get(activity) as? AlertDialog)?.isShowing == true }
+                if (!chooserRestored) Thread.sleep(100)
+            }
+            assertTrue("Unfinished relationship chooser must remain available after split resize", chooserRestored)
             var cardContent: LinearLayout? = null
             var scroll: ScrollView? = null
             fun mountCard(answered: Boolean) {
