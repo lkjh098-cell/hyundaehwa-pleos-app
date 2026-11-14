@@ -30,13 +30,14 @@ class CardAnswerVoiceTest {
     }
     @Test fun twoWayBalanceAcceptsSpokenPositionAndOrdinalWithoutGuessingConflicts() {
         val balance = card.copy(format = "balance", options = card.options.take(2))
-        for (heard in listOf("1번", "일 번이요", "앞에 거", "앞에 꺼요", "전자", "저는 전자로 할게요", "앞쪽", "첫 번째 거"))
+        for (heard in listOf("1번", "일 번이요", "앞에 거", "앞에 꺼요", "전자", "저는 전자로 할게요", "앞쪽", "첫 번째 거", "앞의 거", "앞거", "앞에 것", "첫번", "처음 거"))
             assertEquals("a", SpokenCardAnswerParser.parse(heard, balance)?.choiceId, heard)
-        for (heard in listOf("2번", "이 번", "뒤에 거", "뒤에 꺼", "후자", "후자로 선택할게요", "뒤쪽이요", "두 번째 것", "전자 말고 후자", "1번 말고 후자", "앞에 거 말고 뒤에 거"))
+        for (heard in listOf("2번", "이 번", "뒤에 거", "뒤에 꺼", "후자", "후자로 선택할게요", "뒤쪽이요", "뒤의 거", "뒤거", "뒤에 것", "두 번째 것", "전자 말고 후자", "1번 말고 후자", "앞에 거 말고 뒤에 거"))
             assertEquals("b", SpokenCardAnswerParser.parse(heard, balance)?.choiceId, heard)
         for (heard in listOf("둘 다", "1번 아닌 것 같아", "앞에 거 아니야", "1번 아니면 2번", "전자 후자", "앞에 거랑 뒤에 거", "민수야 후자", "'후자'", "응", "맞아"))
             assertNull(SpokenCardAnswerParser.parse(heard, balance), heard)
-        assertNull(SpokenCardAnswerParser.parse("후자", card)) // position aliases are only meaningful on two-option balance cards
+        assertNull(SpokenCardAnswerParser.parse("후자", card)) // three options make a relative choice ambiguous
+        assertEquals("b", SpokenCardAnswerParser.parse("후자", card.copy(options = card.options.take(2)))?.choiceId)
     }
     @Test fun all2196ExactCurrentBankLabelsWinBeforeGrammarOrControlLikeFragments() {
         val lines = checkNotNull(javaClass.getResourceAsStream("/current-bank-answer-options.tsv")).bufferedReader().use { it.readLines() }

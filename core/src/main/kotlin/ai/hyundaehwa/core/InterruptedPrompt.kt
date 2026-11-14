@@ -46,7 +46,8 @@ class PromptResumeQueue {
     }
     fun takeIfReady(state: ConversationState, destination: String, cardId: String?, conditions: PromptResumeConditions): InterruptedPrompt? {
         discardStale(state, destination, cardId)
-        if (!conditions.resumed || !conditions.voiceEnabled) { clear(); return null }
+        if (!conditions.voiceEnabled) { clear(); return null }
+        if (!conditions.resumed) return null
         val saved = pending ?: return null
         if (failureHeld) return null
         if (conditions.otherVoiceActive ||

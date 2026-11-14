@@ -37,22 +37,42 @@ object AdministrativeConversationLoader {
         }
         return if (text(rule, "province").isBlank()) -1 else count
     }
-    private fun topics(bank: JSONObject?, area: JSONObject): List<AdministrativeConversationTopic> {
-        if (bank == null) return emptyList()
+    private data class IndexedCard(val value: JSONObject, val rules: List<JSONObject>)
+    private data class BankIndex(val version: String, val byCode: Map<String, List<IndexedCard>>)
+
+    /** Index each eligible card once. Multiple rules for one code must not duplicate a card. */
+    private fun indexBank(bank: JSONObject?): BankIndex? {
+        if (bank == null) return null
         val cards = bank.getJSONArray("questions"); val version = text(bank, "version")
         require(cards.length() in 1..20000 && version.isNotBlank())
-        return (0 until cards.length()).mapNotNull { i ->
+        val indexed = linkedMapOf<String, MutableList<IndexedCard>>()
+        for (i in 0 until cards.length()) {
             val value = cards.getJSONObject(i)
             val format = text(value, "format")
-            if (format !in AdministrativeConversationCatalog.formats) return@mapNotNull null
-            if (!LocalContentEligibility.accepts(format, text(value, "sourceKind"),
-                value.optBoolean("reviewed", false), value.optBoolean("verified", false))) return@mapNotNull null
+            if (format !in AdministrativeConversationCatalog.formats ||
+                !LocalContentEligibility.accepts(format, text(value, "sourceKind"),
+                    value.optBoolean("reviewed", false), value.optBoolean("verified", false))) continue
             val rules = value.getJSONArray("areas")
-            // Every format must name the exact administrative code. A province label
-            // or a generic preference tag cannot turn another area's card into local content.
-            val spec = (0 until rules.length()).map { rules.getJSONObject(it) }
-                .filter { LocalContentEligibility.exactCode(text(it, "code"), text(area, "code")) }
-                .maxOfOrNull { specificity(it, area) } ?: -1
+            val byCardCode = linkedMapOf<String, MutableList<JSONObject>>()
+            for (j in 0 until rules.length()) {
+                val rule = rules.getJSONObject(j)
+                val code = text(rule, "code")
+                if (LocalContentEligibility.exactCode(code, code)) byCardCode.getOrPut(code) { mutableListOf() }.add(rule)
+            }
+            byCardCode.forEach { (code, matchingRules) ->
+                indexed.getOrPut(code) { mutableListOf() }.add(IndexedCard(value, matchingRules))
+            }
+        }
+        return BankIndex(version, indexed)
+    }
+    private fun topics(bank: BankIndex?, area: JSONObject): List<AdministrativeConversationTopic> {
+        if (bank == null) return emptyList()
+        val version = bank.version
+        return bank.byCode[text(area, "code")].orEmpty().mapNotNull { entry ->
+            val value = entry.value
+            val format = text(value, "format")
+            // Full specificity checks still apply after the exact-code lookup.
+            val spec = entry.rules.maxOfOrNull { specificity(it, area) } ?: -1
             if (spec < 0) return@mapNotNull null
             val opts = value.getJSONArray("options")
             val choices = (0 until opts.length()).map { j ->
@@ -92,12 +112,13 @@ object AdministrativeConversationLoader {
         val root = JSONObject(raw); require(root.getInt("schemaVersion") == 1)
         val source = root.getJSONObject("boundarySource")
         val bank = runCatching { JSONObject(assets.open("question-bank.json").bufferedReader().use { it.readText() }).also { require(it.getInt("schemaVersion") == 1) } }.getOrNull()
+        val index = indexBank(bank)
         val data = root.getJSONArray("areas"); require(data.length() in 1..1000)
         val areas = (0 until data.length()).map { i ->
             val area = data.getJSONObject(i)
             AdministrativeConversationArea(text(area,"id"),text(area,"code"),text(area,"label"),text(area,"province"),
                 text(area,"city"),text(area,"district"),text(area,"unitType"),geometry(area.getJSONObject("geometry")),
-                topics(bank, area))
+                topics(index, area))
         }
         AdministrativeConversationCatalog(AdministrativeConversationDataset(text(root,"boundaryVintage"),text(source,"title"),text(source,"url"),areas))
     }.getOrNull()?.also { cached = it }

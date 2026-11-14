@@ -14,3 +14,6 @@ local.properties
 source-recovery*.json
 .DS_Store
 .kotlin/
+
+app/libs/*.jar
+captures/

@@ -32,7 +32,7 @@ class ContentRotationTest {
         }
     }
     @Test fun gleoSuccessfulDeliveryConsumesActualKindOnce() {
-        var s = enter(HyundaehwaEngine.simulation().copy(enabled = true, gear = Gear.D, speedKph = 70.0, rotationRemaining = FourContentRotation.order), "a")
+        var s = enter(HyundaehwaEngine.simulation().copy(enabled = true, gear = Gear.D, speedKph = 70.0, rotationRemaining = listOf("balance", "quiz", "quiz", "quiz")), "a")
         s = s.copy(regionStableMs = 3_000, silenceMs = s.silenceThresholdMs)
         s = step(s, ConversationEvent.ExternalTopicPresented("a", "a-balance"))
         assertEquals(listOf("quiz", "quiz", "quiz"), s.rotationRemaining)

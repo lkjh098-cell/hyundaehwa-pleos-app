@@ -59,6 +59,8 @@ data class ConversationState(
     val rotationCommittedTopicId: String? = null,
     val presentedRegionIds: Set<String> = emptySet(),
     val regionEntryHeld: Boolean = false, // Set by the local entry narrator; never inferred from an external Gleo callback.
+    val requireEntryDelivery: Boolean = false, val pinnedEntryRegionId: String = "",
+    val pinnedEntryTopics: List<Topic> = emptyList(), val pinnedEntryFinished: Boolean = false, val pinnedEntrySpeechId: String = "",
     val regionalTopics: List<Topic> = emptyList(), val regionalTopicsRegionId: String = "",
     val destinationSilenceMs: Long = 0, val destinationPromptArmed: Boolean = true, val destinationPromptPending: Boolean = false,
     val destinationPromptCount: Int = 0, val lastDestinationPromptAtMs: Long? = null,
@@ -96,6 +98,9 @@ sealed interface ConversationEvent {
     data class QuietChanged(val active: Boolean) : ConversationEvent
     data class SpeechChanged(val active: Boolean) : ConversationEvent
     data class OutputDone(val id: String? = null) : ConversationEvent
+    data class RegionEntryStarted(val regionId: String, val speechId: String) : ConversationEvent
+    data class RegionEntryFinished(val regionId: String, val speechId: String) : ConversationEvent
+    data class RegionEntryAborted(val regionId: String, val speechId: String) : ConversationEvent
     data class RegionalTopicsChanged(val regionId: String, val topics: List<Topic>) : ConversationEvent
     data class RegionChanged(val regionId: String, val label: String, val destination: String, val source: String = "simulation") : ConversationEvent
     data class ExternalTopicPresented(val regionId: String, val topicId: String) : ConversationEvent
@@ -135,7 +140,7 @@ object HyundaehwaEngine {
     }
     private fun eligible(s: ConversationState) = calmDriving(s) && s.regionId.isNotBlank() &&
         soundQuiet(s) && s.silenceMs >= s.silenceThresholdMs
-    private fun clear(s: ConversationState) = s.copy(output = null, topic = null, speechActive = false, answerExplanationHeld = false, answerListening = false)
+    private fun clear(s: ConversationState) = s.copy(output = null, topic = null, speechActive = false, answerExplanationHeld = false, answerListening = false, pinnedEntryRegionId = "", pinnedEntryTopics = emptyList(), pinnedEntryFinished = false, pinnedEntrySpeechId = "")
     private fun emit(s: ConversationState, kind: String, text: String, topic: Topic? = null): ConversationState {
         val sequence = s.outputSequence + 1
         return s.copy(destinationSilenceMs = 0, outputSequence = sequence, output = Utterance("${s.scenario.name}-$sequence", kind, text, topic?.id), topic = topic)
@@ -169,10 +174,15 @@ object HyundaehwaEngine {
         }
         if (eligible(s) && s.output == null && s.topic == null && !s.restDue && !s.regionEntryHeld && !s.weatherPresented && !s.pendingWeather.isNullOrBlank())
             return emit(s, "weather", s.pendingWeather).copy(weatherPresented = true, pendingWeather = null, silenceMs = 0, lastTopicAtMs = s.simElapsedMs)
-        val regionReady = s.pendingRegionId.isNotBlank() && s.pendingRegionId == s.regionId &&
-            s.regionStableMs >= ConversationLimits.REGION_STABLE_MS && s.pendingRegionId != s.lastAnnouncedRegionId
-        if (!s.regionEntryHeld && s.topic == null && s.regionId !in s.presentedRegionIds && eligible(s) && s.output == null && !s.restDue && regionReady) {
-            val all = if (s.regionalTopicsRegionId == s.regionId) s.regionalTopics.filter { it.regionId == s.regionId } else emptyList()
+        val entryPinned = s.requireEntryDelivery && s.pinnedEntryFinished && s.pinnedEntryRegionId.isNotBlank()
+        val selectedRegion = if (entryPinned) s.pinnedEntryRegionId else s.regionId
+        val regionReady = if (s.requireEntryDelivery) entryPinned && s.regionId.isNotBlank()
+            else s.pendingRegionId.isNotBlank() && s.pendingRegionId == s.regionId &&
+                s.regionStableMs >= ConversationLimits.REGION_STABLE_MS && s.pendingRegionId != s.lastAnnouncedRegionId
+        val regionalEligible = if (s.requireEntryDelivery) calmDriving(s) && s.regionId.isNotBlank() else eligible(s)
+        if (!s.regionEntryHeld && s.topic == null && selectedRegion !in s.presentedRegionIds && regionalEligible && s.output == null && !s.restDue && regionReady) {
+            val all = if (entryPinned) s.pinnedEntryTopics.filter { it.regionId == selectedRegion }
+                else if (s.regionalTopicsRegionId == selectedRegion) s.regionalTopics.filter { it.regionId == selectedRegion } else emptyList()
             val candidates = all.filter { it.id !in s.usedTopicIds }
             val order = formatOrder(s)
             val nextKey = if (FourContentRotation.enabled(s.relationship)) FourContentRotation.next(
@@ -181,14 +191,15 @@ object HyundaehwaEngine {
                 .firstOrNull { type -> candidates.any { it.type == type } }
             val topic = if (FourContentRotation.enabled(s.relationship)) candidates.firstOrNull { FourContentRotation.key(it) == nextKey }
                 else candidates.firstOrNull { it.type == nextType }
+            if (topic == null && entryPinned && s.regionId != selectedRegion) return s.copy(
+                pinnedEntryRegionId = "", pinnedEntryTopics = emptyList(), pinnedEntryFinished = false, pinnedEntrySpeechId = "")
             if (topic != null) {
-                val spoken = topic.text
-                val presented = emit(s, "topic", spoken, topic).copy(usedTopicIds = s.usedTopicIds + topic.id,
-                    lastTopicId = topic.id, topicFormatCursor = (order.indexOf(topic.type) + 1) % order.size,
-                    pendingRegionId = if (regionReady) "" else s.pendingRegionId,
-                    lastAnnouncedRegionId = s.regionId, presentedRegionIds = s.presentedRegionIds + s.regionId,
-                    lastTopicAtMs = s.simElapsedMs, silenceMs = 0)
-                return commitDestination(presented, topic)
+                val presented = emit(s, "topic", topic.text, topic).copy(lastTopicAtMs = s.simElapsedMs, silenceMs = 0)
+                return if (s.requireEntryDelivery) presented else commitDestination(presented.copy(
+                    usedTopicIds = s.usedTopicIds + topic.id, lastTopicId = topic.id,
+                    topicFormatCursor = (order.indexOf(topic.type) + 1) % order.size,
+                    pendingRegionId = "", lastAnnouncedRegionId = selectedRegion,
+                    presentedRegionIds = s.presentedRegionIds + selectedRegion), topic)
             }
         }
         return s
@@ -196,7 +207,7 @@ object HyundaehwaEngine {
     private fun externalTopic(state: ConversationState, event: ConversationEvent.ExternalTopicPresented): Topic? =
         if (!state.regionEntryHeld && eligible(state) && state.output == null && state.topic == null && !state.restDue && event.regionId.isNotBlank() && state.regionId == event.regionId && event.regionId !in state.presentedRegionIds && state.regionalTopicsRegionId == event.regionId)
             state.regionalTopics.firstOrNull { it.regionId == event.regionId && it.id == event.topicId &&
-                FourContentRotation.key(it) in state.rotationRemaining &&
+                FourContentRotation.key(it) == state.rotationRemaining.firstOrNull() &&
                 !(state.lastRotationKey == "balance" && FourContentRotation.key(it) == "balance") } else null
     fun reduce(state: ConversationState, event: ConversationEvent, random: Random = Random.Default): ConversationState {
         if (event is ConversationEvent.ExternalTopicPresented) {
@@ -214,7 +225,7 @@ object HyundaehwaEngine {
             is ConversationEvent.ArrivalChanged -> if (s.arrived == event.arrived) s else {
                 val changed = s.copy(arrived = event.arrived, arrivalAnnounced = false, restDue = false, restRequested = false,
                     restAnnounced = false, restSelection = null, restCommitted = false, drivingMs = 0,
-                    pendingRegionId = "", silenceMs = 0, lastTopicAtMs = null)
+                    pendingRegionId = "", pinnedEntryRegionId = "", pinnedEntryTopics = emptyList(), pinnedEntryFinished = false, silenceMs = 0, lastTopicAtMs = null)
                 if (s.answerExplanationHeld) changed else clear(changed)
             }
             is ConversationEvent.WeatherReady -> if (event.text.isBlank()) s.copy(pendingWeather = null) else if (!s.weatherPresented) s.copy(pendingWeather = event.text) else s
@@ -285,7 +296,17 @@ object HyundaehwaEngine {
             is ConversationEvent.QuietChanged -> if (event.active && s.output?.kind != "rest") clear(s.copy(quiet = true, silenceMs = 0, destinationSilenceMs = 0, destinationPromptPending = false)) else s.copy(quiet = event.active, silenceMs = if (event.active) 0 else s.silenceMs)
             is ConversationEvent.SpeechChanged -> if (!event.active) s.copy(speechActive = false, output = null) else s.copy(speechActive = s.output != null && s.guards.isEmpty() && (!s.quiet || s.output?.kind == "rest"))
             is ConversationEvent.OutputDone -> if (event.id != null && event.id != s.output?.id) s else s.copy(output = null, speechActive = false)
-            is ConversationEvent.RegionalTopicsChanged -> if (event.regionId != s.regionId) s.copy(regionalTopics = emptyList(), regionalTopicsRegionId = "") else s.copy(regionalTopics = event.topics.filter { it.regionId == event.regionId }, regionalTopicsRegionId = event.regionId)
+            is ConversationEvent.RegionEntryStarted -> if (s.requireEntryDelivery && event.regionId.isNotBlank() && event.regionId == s.regionId && event.speechId.isNotBlank() && s.topic == null) s.copy(
+                pinnedEntryRegionId = event.regionId, pinnedEntrySpeechId = event.speechId, pinnedEntryFinished = false,
+                pinnedEntryTopics = if (s.regionalTopicsRegionId == event.regionId) s.regionalTopics else emptyList()) else s
+            is ConversationEvent.RegionEntryFinished -> if (event.regionId.isNotBlank() && event.regionId == s.pinnedEntryRegionId && event.speechId == s.pinnedEntrySpeechId) s.copy(pinnedEntryFinished = true) else s
+            is ConversationEvent.RegionEntryAborted -> if (event.regionId.isNotBlank() && event.regionId == s.pinnedEntryRegionId && event.speechId == s.pinnedEntrySpeechId) s.copy(pinnedEntryRegionId = "", pinnedEntryTopics = emptyList(), pinnedEntryFinished = false, pinnedEntrySpeechId = "") else s
+            is ConversationEvent.RegionalTopicsChanged -> {
+                val topics = event.topics.filter { it.regionId == event.regionId }
+                // The in-flight announcement owns the exact inventory captured at Started.
+                // Later refreshes update only the current region for a future transaction.
+                if (event.regionId != s.regionId) s else s.copy(regionalTopics = topics, regionalTopicsRegionId = event.regionId)
+            }
             is ConversationEvent.RegionChanged -> {
                 if (s.destination != event.destination) {
                     s = s.copy(destinationSilenceMs = 0, destinationPromptArmed = true, destinationPromptPending = false,
@@ -296,15 +317,23 @@ object HyundaehwaEngine {
                 s.copy(regionLabel = event.label, destination = event.destination, navigationSource = event.source)
             } else {
                 s.copy(regionId = event.regionId, regionLabel = event.label, destination = event.destination,
-                    navigationSource = event.source, output = if (s.destination == event.destination && event.regionId.isNotBlank()) s.output else null,
-                    speechActive = s.destination == event.destination && event.regionId.isNotBlank() && s.speechActive, regionalTopics = emptyList(), regionalTopicsRegionId = "",
+                    navigationSource = event.source, output = if (s.destination == event.destination && (event.regionId.isNotBlank() || s.topic != null || s.answerExplanationHeld)) s.output else null,
+                    speechActive = s.destination == event.destination && (event.regionId.isNotBlank() || s.topic != null || s.answerExplanationHeld) && s.speechActive, regionalTopics = emptyList(), regionalTopicsRegionId = "",
                     pendingRegionId = if (event.regionId.isNotBlank() && event.regionId != s.lastAnnouncedRegionId) event.regionId else "",
                     regionStableMs = 0)
             }
             }
             is ConversationEvent.LocalTopicDisplayed -> {
                 val topic = s.topic?.takeIf { it.id == event.topicId && s.output?.topicId == it.id }
-                commitRotation(s, topic, random)
+                if (topic == null || !s.requireEntryDelivery) commitRotation(s, topic, random) else {
+                    val order = formatOrder(s)
+                    val committed = s.copy(usedTopicIds = s.usedTopicIds + topic.id, lastTopicId = topic.id,
+                        topicFormatCursor = (order.indexOf(topic.type) + 1) % order.size,
+                        lastAnnouncedRegionId = topic.regionId, presentedRegionIds = s.presentedRegionIds + topic.regionId,
+                        pendingRegionId = if (s.pendingRegionId == topic.regionId) "" else s.pendingRegionId,
+                        pinnedEntryRegionId = "", pinnedEntryTopics = emptyList(), pinnedEntryFinished = false, pinnedEntrySpeechId = "")
+                    commitRotation(commitDestination(committed, topic), topic, random)
+                }
             }
             is ConversationEvent.ExternalTopicPresented -> {
                 val topic = externalTopic(s, event)
@@ -323,7 +352,7 @@ object HyundaehwaEngine {
             ConversationEvent.RestCommitted -> if (s.restDue && s.restSelection != null) s.copy(restCommitted = true, notice = "휴식 장소 선택을 기록했어요. 실제 경로 변경 여부는 내비게이션에서 확인해 주세요.") else s
             ConversationEvent.RestCancelled -> if (s.restDue) clear(s.copy(restDue = false, restSelection = null, restCommitted = false, silenceMs = 0, destinationSilenceMs = 0, destinationPromptPending = false, destinationPromptArmed = true)) else s
             ConversationEvent.RestConfirmed -> if (canConfigure(s)) clear(s.copy(drivingMs = 0, silenceMs = 0, restDue = false, restRequested = false, restAnnounced = false, restSelection = null, restCommitted = false)) else s.copy(notice = "안전하게 주차하고 휴식을 마친 뒤 확인해 주세요.")
-            is ConversationEvent.ScenarioChanged -> if (s.demoVehicle && canConfigure(s)) simulation(event.scenario).copy(topicFormatCursor = s.topicFormatCursor,
+            is ConversationEvent.ScenarioChanged -> if (s.demoVehicle && canConfigure(s)) simulation(event.scenario).copy(requireEntryDelivery = s.requireEntryDelivery, topicFormatCursor = s.topicFormatCursor,
                 rotationRemaining = s.rotationRemaining, lastRotationKey = s.lastRotationKey) else s.copy(notice = "시연 조건은 P 정차에서 바꿀 수 있어요.")
         }
         return s

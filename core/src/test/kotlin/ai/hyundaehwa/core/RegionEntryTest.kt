@@ -6,7 +6,8 @@ import org.junit.Test
 class RegionEntryTest {
     private val ready = RegionEntryConditions(true, true, true, false, false, false, false)
     private fun state(id: String = "b") = HyundaehwaEngine.simulation().copy(enabled = true, gear = Gear.D, speedKph = 70.0,
-        destination = "목적지", regionId = id, regionLabel = "성동구", regionEntryHeld = true, output = null, topic = null, silenceMs = ConversationLimits.SILENCE_MS)
+        destination = "목적지", regionId = id, regionLabel = "성동구", regionEntryHeld = true, output = null, topic = null,
+        silenceMs = ConversationLimits.SILENCE_MS, rotationRemaining = FourContentRotation.order)
     private fun queue(id: String = "b") = RegionEntryQueue().also { it.observe(id, "성동구", "목적지") }
     @Test fun visualChangesImmediatelyButCurrentQuestionAndSpeechRemainPinned() {
         val output = Utterance("old-question", "topic", "질문을 계속 읽습니다.", "old")
@@ -18,7 +19,8 @@ class RegionEntryTest {
         assertNull(queue.begin(next, ready)); assertTrue(queue.blocksContent)
     }
     @Test fun entryVoiceMustActuallyCompleteBeforeRegionCardOrRotationIsConsumed() {
-        val queue = queue(); var s = state().copy(pendingRegionId = "b", regionStableMs = 3000)
+        val queue = queue(); var s = state().copy(pendingRegionId = "b", regionStableMs = 3000,
+            rotationRemaining = FourContentRotation.order)
         val card = Topic("b-question", TopicType.QUIZ, "b", "새 지역 질문")
         s = HyundaehwaEngine.reduce(s, ConversationEvent.RegionalTopicsChanged("b", listOf(card)))
         assertNull(s.topic); assertTrue(s.usedTopicIds.isEmpty()); assertTrue(s.presentedRegionIds.isEmpty())

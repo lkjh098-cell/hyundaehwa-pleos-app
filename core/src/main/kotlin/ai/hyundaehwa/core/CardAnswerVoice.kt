@@ -3,7 +3,7 @@ package ai.hyundaehwa.core
 data class SpokenCardAnswer(val choiceId: String?, val gaveUp: Boolean = false)
 object SpokenCardAnswerParser {
     private fun normalized(value: String) = value.lowercase().replace(Regex("[^가-힣ㄱ-ㅎㅏ-ㅣa-z0-9]"), "")
-    private val ordinals = listOf(listOf("1", "1번", "일번", "첫번째", "첫째"), listOf("2", "2번", "이번", "두번째", "두번", "둘째"),
+    private val ordinals = listOf(listOf("1", "1번", "일번", "첫번째", "첫째", "첫번", "처음거"), listOf("2", "2번", "이번", "두번째", "두번", "둘째"),
         listOf("3", "3번", "삼번", "세번째", "세번", "셋째"), listOf("4", "4번", "사번", "네번째", "넷째"))
     private const val prefix = "(?:(?:저는|나는|난|나|제가|제생각에는|아|음|어|정답은|답은|그건|이건))*"
     private const val ending = "(?:(?:이|가|은|는)?정답(?:이야|이에요|입니다|인것같아|인것같아요)|(?:인|일)?것같(?:아|아요)|같(?:아|아요|은데|은데요)|(?:으로|로|에)?(?:할게|할게요|갈게|갈게요|가요|가겠습니다|선택|선택할게|선택할게요|고를게|고를게요)|(?:이요|요|이에요|예요|이야|야|입니다))?"
@@ -34,9 +34,9 @@ object SpokenCardAnswerParser {
         if (card.format == "quiz" && miss) return SpokenCardAnswer(null, true)
         val hits = card.options.filterIndexed { index, option ->
             val names = (listOf(option.label) + option.keywords).map(::normalized).filter { it.length >= 2 }.distinct()
-            val directional = if (card.format == "balance" && card.options.size == 2) when (index) {
-                0 -> listOf("앞에거", "앞에꺼", "앞의것", "앞에있는거", "앞쪽", "전자", "첫번째거", "첫번째것")
-                else -> listOf("뒤에거", "뒤에꺼", "뒤의것", "뒤에있는거", "뒤쪽", "후자", "두번째거", "두번째것")
+            val directional = if (card.options.size == 2) when (index) {
+                0 -> listOf("앞에거", "앞에꺼", "앞의거", "앞에것", "앞의것", "앞거", "앞에있는거", "앞쪽", "전자", "첫번째거", "첫번째것")
+                else -> listOf("뒤에거", "뒤에꺼", "뒤의거", "뒤에것", "뒤의것", "뒤거", "뒤에있는거", "뒤쪽", "후자", "두번째거", "두번째것")
             } else emptyList()
             val numbers = ordinals.getOrNull(index).orEmpty() + directional
             val forms = names + numbers + numbers.flatMap { n -> names.map { name -> n + name } } + names.flatMap { name -> numbers.map { n -> name + n } }

@@ -38,7 +38,7 @@ class MainActivity : Activity() {
     private val cream = Color.rgb(245, 245, 245)
     private val appFont: Typeface by lazy { ResourcesCompat.getFont(this, R.font.pretendard) ?: Typeface.create("sans-serif", Typeface.NORMAL) }
     private val handler = Handler(Looper.getMainLooper())
-    private var state = HyundaehwaEngine.initial()
+    private var state = HyundaehwaEngine.initial().copy(requireEntryDelivery = true)
     private var passengerProfile = PassengerProfile()
     private var difficultyMode = DifficultyMode.AUTO
     private var settingsOpen = false
@@ -101,10 +101,16 @@ class MainActivity : Activity() {
     private var answerVisible = false
     private val answerSpeech = AnswerSpeechQueue()
     private val regionEntry = RegionEntryQueue()
+    // Full source cards accompany the core's immutable entry-topic snapshot.
+    private var entrySnapshotRegion = ""
+    private var entrySnapshotAudience = ""
+    private var entrySnapshotDifficulty = 0
+    private var entrySnapshotCards: List<AdministrativeConversationTopic> = emptyList()
     private var answerBubbleView: View? = null
     private var answerScrollPending = false
     private var conversationScrollY = 0
     private var unansweredReveal = false
+    private var pinningCard = false
     private var pinnedCard: AdministrativeConversationTopic? = null
     private var pinnedRegionId: String? = null
     private var pinnedShownAt = 0L
@@ -112,12 +118,18 @@ class MainActivity : Activity() {
     private var pausedAt = 0L
     private fun pinCard(item: AdministrativeConversationTopic, region: String) {
         if (pinnedCard?.id == item.id) return
-        answerVoice?.clear(); answerVoiceAttemptedCardId = null; answerVoiceQuestionReady = !voiceEnabled
-        discardAnswerSpeech(reset = true)
-        clearPromptResume()
-        conversationScrollY = 0; answerScrollPending = false
-        pinnedCard = item; pinnedRegionId = region; pinnedShownAt = SystemClock.elapsedRealtime(); revealedAt = 0L
-        choiceCardId = item.id; selectedChoiceId = null; heardChoice = null; answerVisible = false; unansweredReveal = false
+        // clear() synchronously delivers a voice-state callback. Establish identity and
+        // suppress that callback's nested render until the entire card transition is complete.
+        pinningCard = true
+        try {
+            pinnedCard = item; pinnedRegionId = region; pinnedShownAt = SystemClock.elapsedRealtime(); revealedAt = 0L
+            choiceCardId = item.id; selectedChoiceId = null; heardChoice = null; answerVisible = false; unansweredReveal = false
+            answerVoiceAttemptedCardId = null; answerVoiceQuestionReady = !voiceEnabled
+            conversationScrollY = 0; answerScrollPending = false
+            discardAnswerSpeech(reset = true)
+            clearPromptResume()
+            answerVoice?.clear()
+        } finally { pinningCard = false }
     }
     private fun discardAnswerSpeech(reset: Boolean = false) {
         if (reset) answerSpeech.reset() else answerSpeech.cancel()
@@ -198,7 +210,10 @@ class MainActivity : Activity() {
     private var gleoCardRegionId: String? = null
     private var gleoCardAudience: String? = null
     private var gleoCardDifficulty: Int? = null
+    private enum class CatalogLoadState { LOADING, READY, FAILED }
     private var administrativeCatalog: AdministrativeConversationCatalog? = null
+    private var catalogLoadState = CatalogLoadState.LOADING
+    private lateinit var catalogStatusTextView: TextView
     private var gleoRequestStatus = "차량 AI 연결 준비"
     private var gleoCallbackSent: Boolean? = null
     private lateinit var relayStore: RelayConnectionStore
@@ -307,13 +322,26 @@ class MainActivity : Activity() {
                     if (next.phase == VoicePhase.FAILED && completed != null) promptResume.holdAfterFailure(completed)
                     activeSpeechId = null; localPrompt = null
                     if (completed != null && regionEntry.active?.speechId == completed) {
+                        val entry = requireNotNull(regionEntry.active)
                         when (next.phase) {
-                            VoicePhase.COMPLETED -> regionEntry.complete(completed)
-                            VoicePhase.CANCELLED -> regionEntry.cancelled(completed, promptResume.pending?.utterance?.id == completed)
-                            VoicePhase.FAILED -> regionEntry.failed(completed, next.error ?: "지역 안내 음성을 재생하지 못했어요.")
+                            VoicePhase.COMPLETED -> if (regionEntry.complete(completed)) {
+                                // Complete the exact spoken A before a later B can acquire the turn.
+                                state = HyundaehwaEngine.reduceBatch(state.copy(regionEntryHeld = false), listOf(
+                                    ConversationEvent.OutputDone(completed), ConversationEvent.RegionEntryFinished(entry.regionId, completed)))
+                            }
+                            VoicePhase.CANCELLED -> {
+                                val checkpoint = promptResume.pending?.utterance?.id == completed
+                                regionEntry.cancelled(completed, checkpoint)
+                                if (!checkpoint) state = HyundaehwaEngine.reduce(state, ConversationEvent.RegionEntryAborted(entry.regionId, completed))
+                                refreshRegionEntryHold()
+                            }
+                            VoicePhase.FAILED -> {
+                                regionEntry.failed(completed, next.error ?: "지역 안내 음성을 재생하지 못했어요.")
+                                state = HyundaehwaEngine.reduce(state, ConversationEvent.RegionEntryAborted(entry.regionId, completed))
+                                refreshRegionEntryHold()
+                            }
                             else -> Unit
                         }
-                        state = state.copy(regionEntryHeld = regionEntry.active != null)
                     }
                     if (completed != null && answerSpeech.current?.id == completed) {
                         when (next.phase) {
@@ -349,22 +377,34 @@ class MainActivity : Activity() {
             if (voiceState.active && voiceState.purpose == VoicePurpose.TALK) speech?.stop("대화를 멈췄어요.")
         }, { next -> talkState = next; render(force = true) })
         }
-        // Parse and index the shared polygons once off the UI thread. Gleo can truthfully ask
-        // to wait if an invocation arrives before the local catalog is ready.
-        Thread({
-            val catalog = AdministrativeConversationLoader.load(assets)
-            handler.post {
-                if (!isFinishing && !isDestroyed) {
-                    administrativeCatalog = catalog
-                    if (!emulatorMode) receivePlatform(currentSnapshot) else render(force = true)
-                }
-            }
-        }, "hyundaehwa-administrative-catalog").apply { isDaemon = true; start() }
-        bridge = PleosPlatformBridge(this) { snapshot -> if (!emulatorMode) receivePlatform(snapshot) }
+        startCatalogLoad()
+        bridge = PleosPlatformBridge(this) { snapshot -> if (!emulatorMode && resumed) receivePlatform(snapshot) }
         state = HyundaehwaEngine.reduce(state, ConversationEvent.SeatsChanged(false, 0, "unavailable"))
         buildShell()
         render(force = true)
         intent?.let(::handleGleoIntent)
+    }
+    private fun startCatalogLoad() {
+        if (isFinishing || isDestroyed) return
+        // The worker holds only application assets and a weak Activity reference.
+        // The loader's synchronized process cache deduplicates simultaneous Activity loads.
+        val appAssets = applicationContext.assets
+        val owner = java.lang.ref.WeakReference(this)
+        val mainHandler = Handler(Looper.getMainLooper())
+        Thread({
+            val loaded = AdministrativeConversationLoader.load(appAssets)
+            mainHandler.post {
+                val activity = owner.get() ?: return@post
+                if (activity.isFinishing || activity.isDestroyed) return@post
+                activity.administrativeCatalog = loaded
+                activity.catalogLoadState = if (loaded == null) CatalogLoadState.FAILED else CatalogLoadState.READY
+                if (activity.resumed) {
+                    // receivePlatform performs its own 8-second freshness check; no old coordinate is replayed as fresh.
+                    if (!activity.emulatorMode) activity.receivePlatform(activity.currentSnapshot)
+                    else { activity.refreshRegionalTopics(); activity.render(force = true); activity.playPendingOutput() }
+                }
+            }
+        }, "hyundaehwa-administrative-catalog").apply { isDaemon = true; start() }
     }
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -439,12 +479,14 @@ class MainActivity : Activity() {
     }
     override fun onResume() {
         if (!relationshipChosen) automaticPassengerPromptShown = false
-        super.onResume(); if (pausedAt > 0 && pinnedCard != null) { val gap = SystemClock.elapsedRealtime() - pausedAt; pinnedShownAt += gap; if (revealedAt > 0) revealedAt += gap }; pausedAt = 0; resumed = true; welcomePending = intent?.action !in GleoTalkActions.names; if (!emulatorMode) bridge?.start(); lastTick = SystemClock.elapsedRealtime(); handler.post(tick)
+        super.onResume(); if (pausedAt > 0 && pinnedCard != null) { val gap = SystemClock.elapsedRealtime() - pausedAt; pinnedShownAt += gap; if (revealedAt > 0) revealedAt += gap }; pausedAt = 0; resumed = true; welcomePending = intent?.action !in GleoTalkActions.names && promptResume.pending == null && !answerSpeech.unfinished(pinnedCard?.id); if (!emulatorMode) bridge?.start(); lastTick = SystemClock.elapsedRealtime(); handler.post(tick)
     }
     override fun onPause() {
+        // Persist the current sentence across foreground changes without saving raw audio.
+        if (voiceState.active && voiceState.purpose == VoicePurpose.PROMPT) {
+            activeSpeechId?.let { rememberInterruptedPrompt(it, speech?.remainingText.orEmpty()) }
+        }
         resumed = false; settingsOpen = false; settingsDialog?.dismiss(); settingsDialog = null; settingsHolder = null; cabinMonitor?.setEnabled(false); answerVoice?.clear()
-        discardAnswerSpeech()
-        clearPromptResume()
         relationshipVoice?.cancel()
         pausedAt = SystemClock.elapsedRealtime(); resumed = false; welcomePending = false; handler.removeCallbacks(tick); lastTick = 0
         if (!relationshipPermissionInFlight) parkedDialog?.dismiss()
@@ -459,40 +501,66 @@ class MainActivity : Activity() {
         render(force = true)
     }
 
+    private fun snapshotEntryCards(regionId: String) {
+        val area = administrativeCatalog?.areaById(regionId) ?: return
+        entrySnapshotRegion = regionId; entrySnapshotAudience = activeAudience
+        entrySnapshotDifficulty = effectiveDifficulty; entrySnapshotCards = regionalCards(area).toList()
+    }
+    private fun refreshRegionEntryHold() {
+        // A pending later region cannot overtake an already pinned question or delivered entry.
+        val pinned = pinnedCard != null || state.topic != null || state.answerExplanationHeld || state.pinnedEntryFinished
+        state = state.copy(regionEntryHeld = regionEntry.blocksContent && !pinned)
+    }
     private fun observeRegionEntry(regionId: String, label: String, destination: String) {
-        regionEntry.observe(regionId, label, destination, voiceState.requestId?.takeIf { voiceState.active })
+        val previous = regionEntry.active
+        // A transient unknown location is not an instruction to abandon the active entry.
+        if (regionId.isBlank() && destination == state.destination) { refreshRegionEntryHold(); return }
+        val playing = voiceState.requestId?.takeIf { voiceState.active } ?: promptResume.pending?.utterance?.id
+        regionEntry.observe(regionId, label, destination, playing)
+        if (previous != null && regionEntry.active?.speechId != previous.speechId) {
+            state = HyundaehwaEngine.reduce(state, ConversationEvent.RegionEntryAborted(previous.regionId, previous.speechId))
+        }
         val checkpoint = promptResume.pending
         if (checkpoint?.utterance?.kind == "region-entry" && checkpoint.utterance.id != (regionEntry.active?.speechId ?: regionEntry.pending?.speechId)) clearPromptResume()
-        state = state.copy(regionEntryHeld = regionEntry.active != null)
+        refreshRegionEntryHold()
     }
     private fun prepareRegionEntryOutput(localAudioReady: Boolean) {
-        // Entry text can be shown immediately. Speaking waits for fresh, sustained quiet,
-        // and a known arrival forecast gets the first eligible silence.
-        val observed = state.soundObservedAtMs
-        val soundFresh = observed != null && state.wallElapsedMs - observed in 0..ConversationLimits.SOUND_FRESH_MS
-        val quietEnough = soundFresh && state.rms != null && state.rms!! < ConversationLimits.LOW_RMS &&
-            state.silenceMs >= state.silenceThresholdMs
-        val weatherHasPriority = weatherConsent && weatherTried &&
-            (weatherLoading || (forecast != null && !state.weatherPresented))
-        if (!quietEnough || weatherHasPriority) return
+        refreshRegionEntryHold()
+        // Entry announcement is independent of the silence timer. Inventory must be loaded
+        // before Started so the core snapshots the spoken region rather than a later region.
+        if (administrativeCatalog == null || state.regionId.isBlank()) return
+        if (!emulatorMode && currentSnapshot.locationUpdatedAtMs?.let { SystemClock.elapsedRealtime() - it in 0..8_000 } != true) return
+        refreshRegionalTopics()
+        if (state.regionalTopicsRegionId != state.regionId) return
         val conditions = RegionEntryConditions(resumed, voiceEnabled, localAudioReady,
-            pinnedCard != null || state.answerExplanationHeld || settingsOpen || parkedDialog != null || emulatorTab,
+            pinnedCard != null || state.answerExplanationHeld || settingsOpen || parkedDialog != null || emulatorTab || state.pinnedEntryFinished,
             voiceState.active || talkState.active || answerVoiceState.active || relationshipVoice != null,
             promptResume.pending != null, !emulatorMode && currentSnapshot.navigationVoiceActive == true,
             speech?.audioFocusBlocked == true)
+        val priorNotice = regionEntry.pending
         if (regionEntry.recover(state, conditions) == RegionEntryRecovery.TEXT) {
-            state = state.copy(regionEntryHeld = regionEntry.active != null)
+            if (priorNotice != null && priorNotice.regionId == state.regionId) {
+                refreshRegionalTopics(); snapshotEntryCards(priorNotice.regionId)
+                state = HyundaehwaEngine.reduceBatch(state.copy(regionEntryHeld = false), listOf(
+                    ConversationEvent.RegionEntryStarted(priorNotice.regionId, priorNotice.speechId),
+                    ConversationEvent.RegionEntryFinished(priorNotice.regionId, priorNotice.speechId)))
+            }
             return
         }
         if (!voiceEnabled) {
-            if (regionEntry.acknowledgeText(state, conditions)) {
-                // The normal next tick selects content; text mode never fabricates an output/voice completion.
-                state = state.copy(regionEntryHeld = regionEntry.active != null)
+            if (regionEntry.acknowledgeText(state, conditions) && priorNotice != null && priorNotice.regionId == state.regionId) {
+                // Visible text is a distinct fallback; it is not an audio completion callback.
+                refreshRegionalTopics(); snapshotEntryCards(priorNotice.regionId)
+                state = HyundaehwaEngine.reduceBatch(state.copy(regionEntryHeld = false), listOf(
+                    ConversationEvent.RegionEntryStarted(priorNotice.regionId, priorNotice.speechId),
+                    ConversationEvent.RegionEntryFinished(priorNotice.regionId, priorNotice.speechId)))
             }
             return
         }
         val next = regionEntry.begin(state, conditions) ?: return
-        state = state.copy(regionEntryHeld = true, output = Utterance(next.speechId, "region-entry", next.spokenText), speechActive = false)
+        refreshRegionalTopics(); snapshotEntryCards(next.regionId)
+        state = HyundaehwaEngine.reduce(state.copy(regionEntryHeld = true), ConversationEvent.RegionEntryStarted(next.regionId, next.speechId))
+        state = state.copy(output = Utterance(next.speechId, "region-entry", next.spokenText), speechActive = false)
         spokenOutput = null
     }
     private fun dispatch(event: ConversationEvent) {
@@ -515,7 +583,9 @@ class MainActivity : Activity() {
         answerVoice?.enforce()
         if (!state.restDue) { realRestChoice = null; restStatus = null; restHeard = null; restVoiceStage = ""; restVoiceReady = false; restVoiceAttempted = false; restConfirmationHeard = null; pendingRestStatusSpeech = null }
         if (pinnedCard == null && before.topic?.id != state.topic?.id) { answerVisible = false; selectedChoiceId = null; heardChoice = null; choiceCardId = "" }
-        if (event == ConversationEvent.Stop || event is ConversationEvent.ScenarioChanged) { pinnedCard = null; pinnedRegionId = null; clearGleoCard() }
+        if (event == ConversationEvent.Stop || event is ConversationEvent.ScenarioChanged) {
+            pinnedCard = null; pinnedRegionId = null; lastAutoCommittedOutput = null; clearGleoCard()
+        }
         clearStaleGleoCard()
         talk?.enforce()
         cancelUnsafeSpeech()
@@ -524,8 +594,8 @@ class MainActivity : Activity() {
     }
     private fun playPendingOutput() {
         promptResume.discardStale(state, state.destination, currentPromptCardId())
-        if (lastCabinActivityAt > 0 && (SystemClock.elapsedRealtime() - lastCabinActivityAt < 5_000 ||
-            (promptResume.pending != null && (state.rms == null || state.rms!! >= ConversationLimits.LOW_RMS)))) return
+        // Resume is independent of microphone permission and sound-level availability.
+        // PromptResumeQueue still enforces foreground, safety, media and audio-focus gates.
         if (!resumed || answerVoiceState.active || state.answerListening || relationshipVoice != null || talkState.active || voiceState.active || speech?.audioFocusBlocked == true) return
         val localAudioReady = true // Playback never depends on microphone permission, RMS or AEC.
         prepareRegionEntryOutput(localAudioReady)
@@ -551,6 +621,8 @@ class MainActivity : Activity() {
             }
         }
         val output = state.output ?: return
+        // A prepared item does not consume the ledger or speak until its card is actually mounted.
+        if (output.kind == "topic" && state.requireEntryDelivery && lastAutoCommittedOutput != output.id) return
         if (output.kind == "weather") weatherCard = output.text
         if (answerSpeech.unfinished(pinnedCard?.id) && output.id != answerSpeech.current?.id) return
         if (!localAudioReady || (!emulatorMode && currentSnapshot.navigationVoiceActive == true)) return
@@ -560,7 +632,7 @@ class MainActivity : Activity() {
         activeSpeechId = output.id
         if (output.kind == "answer") answerSpeech.start(output.id)
         localPrompt = output; localPromptDestination = state.destination; localPromptCardId = currentPromptCardId()
-        if (speech?.speak(output.id, output.text, VoicePurpose.PROMPT, keepTogether = true) != true) {
+        if (speech?.speak(output.id, output.text, VoicePurpose.PROMPT, keepTogether = false) != true) {
             activeSpeechId = null; localPrompt = null; answerSpeech.fail(output.id); dispatch(ConversationEvent.OutputDone(output.id))
         }
     }
@@ -650,6 +722,7 @@ class MainActivity : Activity() {
         answerVoiceState = next
         syncCabinMonitor()
         if (!next.active && state.answerListening) finishAnswerListening()
+        if (pinningCard) return
         if (next.cardId == "active-rest" || next.cardId == "active-rest-confirm") {
             val resolvedRestChoice = next.answer?.choiceId
             if (next.phase == CardAnswerVoicePhase.RESOLVED && resolvedRestChoice != null) {
@@ -968,6 +1041,11 @@ class MainActivity : Activity() {
             }
         }
         root.addView(activityStatusTextView, LinearLayout.LayoutParams(-1, -2))
+        catalogStatusTextView = text("지역 콘텐츠를 준비하고 있어요", 16f, muted).apply {
+            setPadding(dp(16), dp(3), dp(16), dp(5)); maxLines = 2
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+        }
+        root.addView(catalogStatusTextView, LinearLayout.LayoutParams(-1, -2))
         destinationAction = text("목적지 설정 · 순정 내비 열기  ›", 18f, teal, true).apply {
             setPadding(dp(16), dp(5), dp(16), dp(8)); maxLines = 1
             setOnClickListener {
@@ -1074,7 +1152,9 @@ class MainActivity : Activity() {
         val title = if (awaitingGuidance) "경로 안내 확인 중" else view.statusTitle
         val detail = if (awaitingGuidance) "다음 안내 구간을 확인한 뒤 화두를 건네요." else view.statusDetail
         val destinationLabel = if (emulatorMode) state.destination else currentSnapshot.destination?.takeIf { it.isNotBlank() } ?: "목적지 없음"
-        val areaLabel = if (emulatorMode) state.regionLabel else {
+        val areaLabel = if (catalogLoadState == CatalogLoadState.LOADING) "지역 콘텐츠 준비 중"
+            else if (catalogLoadState == CatalogLoadState.FAILED) "지역 콘텐츠 불러오기 실패"
+            else if (emulatorMode) state.regionLabel else {
             val age = currentSnapshot.locationUpdatedAtMs?.let { SystemClock.elapsedRealtime() - it }
             if (age != null && age in 0..8_000) administrativeCatalog?.areaAt(currentSnapshot.longitude, currentSnapshot.latitude)?.label ?: "위치 미확인" else "위치 미확인"
         }
@@ -1091,6 +1171,9 @@ class MainActivity : Activity() {
         guidanceButton.visibility = if (restrictedScreen) View.GONE else View.VISIBLE
         passengerStatus.visibility = if (restrictedScreen) View.GONE else View.VISIBLE
         activityStatusTextView.visibility = if (restrictedScreen) View.GONE else View.VISIBLE
+        catalogStatusTextView.visibility = if (catalogLoadState == CatalogLoadState.READY) View.GONE else View.VISIBLE
+        catalogStatusTextView.text = if (catalogLoadState == CatalogLoadState.FAILED)
+            "지역 콘텐츠를 불러오지 못했어요. 앱을 다시 실행해 주세요." else "지역 콘텐츠를 준비하고 있어요"
         destinationAction.visibility = if (!restrictedScreen && !emulatorMode && currentSnapshot.destination.isNullOrBlank() && canConfigure()) View.VISIBLE else View.GONE
         updateActivityStatus()
         quietButton.text = if (state.quiet) "같이 이야기 나누기" else "조용히 가기"
@@ -1134,7 +1217,12 @@ class MainActivity : Activity() {
         }
         if (emulatorTab) { buildEmulatorPanel(); return }
         val main = column().apply { setPadding(dp(16), dp(8), dp(16), dp(8)); setBackgroundColor(Color.rgb(245, 249, 250)) }
-        main.addView(text(if (areaLabel == "위치 미확인") "현재 위치를 확인하고 있어요." else "${areaLabel} 부근을 지나고 있어요.", 14f, muted).apply { setPadding(0, dp(4), 0, dp(12)) })
+        main.addView(text(when (areaLabel) {
+            "지역 콘텐츠 준비 중" -> "지역 콘텐츠를 준비하고 있어요."
+            "지역 콘텐츠 불러오기 실패" -> "지역 콘텐츠를 불러오지 못했어요."
+            "위치 미확인" -> "현재 위치를 확인하고 있어요."
+            else -> "${areaLabel} 부근을 지나고 있어요."
+        }, 14f, muted).apply { setPadding(0, dp(4), 0, dp(12)) })
         regionEntry.visual?.takeIf { it.regionId == state.regionId }?.let { entry ->
             main.addView(text(entry.message, 17f, Color.WHITE, true).apply {
                 setPadding(dp(16), dp(10), dp(16), dp(10)); background = rounded(selectedFill, 14); setTextColor(ink)
@@ -1200,6 +1288,8 @@ class MainActivity : Activity() {
             content.addView(button(if (voiceState.active && voiceState.purpose == VoicePurpose.TEST) "음성 확인 중지" else "한국어 음성 듣기", Color.TRANSPARENT, teal) { if (voiceState.active && voiceState.purpose == VoicePurpose.TEST) speech?.stop("음성 확인을 멈췄어요.") else startVoiceTest() }.apply { isEnabled = voiceTestBlockReason() == null || (voiceState.active && voiceState.purpose == VoicePurpose.TEST) })
         }
         body.addView(main, LinearLayout.LayoutParams(-1, -1))
+        // A content ledger entry is made only after this actual card is attached and visible.
+        commitMountedTopic(content)
         scroll.post {
             if (scroll.isAttachedToWindow) {
                 val target = answerBubbleView
@@ -1457,9 +1547,9 @@ class MainActivity : Activity() {
     private fun renderTopic(content: LinearLayout) {
         val topic = state.topic ?: return
         val area = administrativeCatalog?.areaById(topic.regionId)
-        val bankCard = pinnedCard ?: DestinationConversation.activeCard(state) ?: area?.let {
-            regionalCards(it).firstOrNull { card -> card.id == topic.id }
-        }
+        val bankCard = pinnedCard ?: DestinationConversation.activeCard(state)
+            ?: entrySnapshotCards.firstOrNull { entrySnapshotRegion == topic.regionId && it.id == topic.id }
+            ?: area?.let { regionalCards(it).firstOrNull { card -> card.id == topic.id } }
         if (bankCard != null) { pinCard(bankCard, topic.regionId); renderBankCard(content, bankCard) }
         else {
             val card = column().apply { setPadding(dp(25), dp(24), dp(25), dp(17)); background = messageBackground() }
@@ -1467,13 +1557,29 @@ class MainActivity : Activity() {
             card.addView(text(topic.text, if (resources.configuration.screenWidthDp < 600) 22f else 26f, ink, true).apply { setPadding(0, dp(22), 0, dp(22)); setLineSpacing(dp(7).toFloat(), 1f) })
             content.addView(card)
         }
-        // A visible automatic card and a successfully delivered Gleo callback
-        // update the same ledger; a guarded or merely prepared item does not.
-        val output = state.output
-        if (output?.topicId == topic.id && output.id != lastAutoCommittedOutput && resumed) {
-            if (administrativeCatalog?.recordPresentedById(topic.regionId, topic.id, activeAudience, effectiveDifficulty) == true) {
+
+    }
+    private fun commitMountedTopic(content: LinearLayout) {
+        val topic = state.topic ?: return
+        val output = state.output?.takeIf { it.topicId == topic.id } ?: return
+        if (output.id == lastAutoCommittedOutput || !resumed) return
+        val outputId = output.id
+        content.post {
+            val visible = android.graphics.Rect()
+            if (resumed && !settingsOpen && parkedDialog == null && !emulatorTab &&
+                content.isAttachedToWindow && content.isShown && content.getGlobalVisibleRect(visible) &&
+                state.guards.isEmpty() && state.topic?.id == topic.id && state.output?.id == outputId &&
+                pinnedCard?.id == topic.id && lastAutoCommittedOutput != outputId &&
+                administrativeCatalog?.recordPresentedById(topic.regionId, topic.id,
+                    if (entrySnapshotRegion == topic.regionId) entrySnapshotAudience else activeAudience,
+                    if (entrySnapshotRegion == topic.regionId) entrySnapshotDifficulty else effectiveDifficulty) == true) {
                 state = HyundaehwaEngine.reduce(state, ConversationEvent.LocalTopicDisplayed(topic.id))
-                lastAutoCommittedOutput = output.id
+                lastAutoCommittedOutput = outputId
+                playPendingOutput()
+            } else if (resumed && content.isAttachedToWindow && state.topic?.id == topic.id &&
+                state.output?.id == outputId && lastAutoCommittedOutput != outputId) {
+                // The card can be temporarily covered by a settings/permission dialog.
+                content.postDelayed({ commitMountedTopic(content) }, 500)
             }
         }
     }
@@ -1698,7 +1804,7 @@ class MainActivity : Activity() {
         if (!emulatorMode) {
             outer.addView(button("시연 신호 사용", teal, navy) { if (canOpenEmulator()) {
                 AlertDialog.Builder(this).setTitle("시연 신호를 사용할까요?").setMessage("좌석·지역·시간을 선택한 시연 조건의 모의값으로 바꿔요.").setPositiveButton("시연 시작") { _, _ ->
-                    regionEntry.clear(); answerVoice?.clear(); answerVoiceOptIn = false; discardAnswerSpeech(reset = true); clearPromptResume(); talk?.clear(); bridge?.stop(); emulatorMode = true; demoPlaybackSpeed = DemoPlaybackClock.DEFAULT_SPEED; relationshipChosen = true; state = HyundaehwaEngine.simulation(Scenario.COLLEAGUE).copy(topicFormatCursor = state.topicFormatCursor,
+                    regionEntry.clear(); answerVoice?.clear(); answerVoiceOptIn = false; discardAnswerSpeech(reset = true); clearPromptResume(); talk?.clear(); bridge?.stop(); emulatorMode = true; demoPlaybackSpeed = DemoPlaybackClock.DEFAULT_SPEED; relationshipChosen = true; state = HyundaehwaEngine.simulation(Scenario.COLLEAGUE).copy(requireEntryDelivery = true, topicFormatCursor = state.topicFormatCursor,
                         rotationRemaining = state.rotationRemaining, lastRotationKey = state.lastRotationKey); passengerProfile = PassengerProfile(AgeBand.ADULT); difficultyMode = DifficultyMode.AUTO; refreshRegionalTopics(); spokenOutput = null; render(force = true)
                 }.setNegativeButton("취소", null).show()
             } })
@@ -1788,9 +1894,10 @@ class MainActivity : Activity() {
     }
     private fun receivePlatform(snapshot: PlatformSnapshot) {
         val destination = snapshot.destination?.takeIf { it.isNotBlank() }
-            ?: if (snapshot.destinationArrived == true && state.answerExplanationHeld) state.destination else ""
+            ?: if ((snapshot.destinationArrived == true && state.answerExplanationHeld) ||
+                (snapshot.routeActive == null && snapshot.destinationArrived != true)) state.destination else ""
         invalidateDestinationCardOnChange(destination)
-        if (state.destination != destination) { discardAnswerSpeech(); clearPromptResume() }
+        if (state.destination != destination) { discardAnswerSpeech(); clearPromptResume(); lastAutoCommittedOutput = null }
         else if (snapshot.destinationArrived == true && !state.answerExplanationHeld) clearPromptResume()
         currentSnapshot = snapshot
         platformStatus = snapshot.status
@@ -1827,13 +1934,14 @@ class MainActivity : Activity() {
     }
     private fun useActualMode() {
         regionEntry.clear()
+        lastAutoCommittedOutput = null
         answerVoice?.clear()
         answerVoiceOptIn = getSharedPreferences("conversation_profile", MODE_PRIVATE).getBoolean("on_device_card_answers", false)
         discardAnswerSpeech(reset = true)
         clearPromptResume()
         talk?.clear(); talkConsent = false; speech?.stop(); bridge?.stop(); emulatorMode = false; demoPlaybackSpeed = DemoPlaybackClock.DEFAULT_SPEED; emulatorTab = false; spokenOutput = null
         relationshipChosen = false
-        state = HyundaehwaEngine.initial().copy(topicFormatCursor = state.topicFormatCursor,
+        state = HyundaehwaEngine.initial().copy(requireEntryDelivery = true, topicFormatCursor = state.topicFormatCursor,
             rotationRemaining = state.rotationRemaining, lastRotationKey = state.lastRotationKey); restoreProfile(); vehicleParked = false; platformStatus = "차량 신호 연결 대기"; if (resumed) bridge?.start(); render(force = true)
     }
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {

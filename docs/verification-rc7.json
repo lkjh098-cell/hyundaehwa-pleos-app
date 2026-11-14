@@ -1,0 +1,125 @@
+{
+  "date": "2026-11-14",
+  "versionName": "0.6.0-rc7",
+  "versionCode": 36,
+  "site": {
+    "url": "https://hyundaehwa-drive-demo.alstjqdmf738116.chatgpt.site/",
+    "build": "map-talk-only-v47-20261114",
+    "commit": "d23a67ee089dddc5ae3809abeb411251476ca77a",
+    "version_id": "appgprj_6aed5741d3c4819198c0ee084553ed39~appgver_a80933c74e888191bdab203deec94193",
+    "deployment_id": "appgdep_6af7ab269600819180f1fff04dc65a01",
+    "status": "succeeded",
+    "audience": "custom",
+    "externalVisitorCount": 1,
+    "carGraphicRemoved": true,
+    "browserVerified": true,
+    "webTests": {
+      "passed": 831,
+      "failed": 0
+    }
+  },
+  "coreTests": {
+    "tests": 249,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "dataParity": {
+    "source": "v47 map-talk-only-v47-20261114",
+    "sourcePath": "/private/tmp/hyundaehwa-behavior-parity-20261114/site/.sites-checkout/ui",
+    "sourceVersions": {
+      "quiz": "2026.11.11.5",
+      "balance": "regional-lifestyle-v3.1-nationwide-20261111"
+    },
+    "sourceCounts": {
+      "allQuestionBank": 2398,
+      "formats": {
+        "quiz": 2354,
+        "balance": 22,
+        "conversation": 22
+      },
+      "quizDifficulty": {
+        "1": 781,
+        "2": 788,
+        "3": 785
+      },
+      "balance": 505,
+      "areas": 246
+    },
+    "nativeCounts": {
+      "formats": {
+        "quiz": 2354,
+        "balance": 505
+      },
+      "area": 246
+    },
+    "quizIdsMissing": 0,
+    "quizMismatchCount": 0,
+    "quizScopeMismatchCount": 0,
+    "balanceMismatchCount": 0,
+    "nativeAdditionalQuizCount": 0,
+    "hashes": {
+      "question-bank.json": "c9a03ddd5c24206bbdb0d5da065a23f8024cef35f37b27709266294ca824e518",
+      "administrative-conversation.json": "760bdd671c70575c7dcf919d8a90e794e6791de332b878576addc2e971e9ded5"
+    }
+  },
+  "runtimeVerification": {
+    "officialEmulator": "Pleos Connect 2.1.0 / API 34 ARM64",
+    "actualSdkLocationAndBank": "PASS; 성남시 수정구, family/adult × low/mid/high, quiz and balance inventory",
+    "parserRegression": "PASS; six representative regions match independent full scan; duplicate and malformed rule checks",
+    "coldStart": {
+      "passed": true,
+      "firstPanelMs": 2476,
+      "mainThreadPingMs": 1,
+      "catalogReadyMs": 12897,
+      "freshSdkPositionCompared": true
+    },
+    "regionSafety": "PASS in isolated process; simulated A→B and safety signals, actual local TTS callbacks",
+    "welcome": "PASS in isolated process; actual fresh P/zero-speed/UX; assistant playback start/completion observed",
+    "fullExplanation": "PASS; PLEOS_ON_DEVICE actual backend start/completion, 10131ms",
+    "recordedCache": "PASS; all three exact clips completed; expected9535ms / observed10723ms",
+    "originalBatchResult": "A previous five-test batch under concurrent host release build passed SDK location and two index checks, but Activity launch timed out and welcome duration failed. Root cause not established. Fresh-process isolated re-runs without concurrent builds passed; not counted as a fully passing batch.",
+    "physicalAudibilityVerified": false,
+    "humanSpeechRecognitionAccuracyVerified": false,
+    "physicalGpsOrRealVehicleVerified": false
+  },
+  "changes": [
+    "Removed decorative animated vehicle panel from website; retained real map and conversation layout",
+    "Require completed entry speech before question for that region; retain original snapshot across region change",
+    "Commit topic history and 3:1 rotation only after actual card mount",
+    "Preserve remaining sentence through safety or background interruption; do not depend on microphone RMS to resume",
+    "Fix recursive render crash on synchronous answer-input clear callback",
+    "Index question data by exact administrative code, keep eligibility and validation, show preparation state",
+    "Extend relative spoken option aliases"
+  ],
+  "remainingDifferences": [
+    "Native destination search is delegated to OEM navigation; not the same browser POI voice-confirmation flow",
+    "OEM Gleo arbitrary conversation needs approved recipient/signature/schema; no Gemini substitute in release",
+    "OEM navigation background map issue intentionally unchanged",
+    "Actual Korean microphone accuracy, real vehicle GPS/safety and physical audio listening remain unverified",
+    "External radio not reported by OS requires explicit external-media hold"
+  ],
+  "artifacts": {
+    "현대화_0.6.0-rc7.apk": {
+      "sha256": "e96d8052a79c2a60b2a7d4338add1d80bda986a560c343656e7f97d7b8d7d96c",
+      "bytes": 210966381,
+      "package": "ai.hyundaehwa.car",
+      "versionCode": 36,
+      "releaseCertificateSha256": "578e5484a2a02513aa0f10b5d1cf9caa052f46c9a2b3c5995dfe2a0a7e8aa27c",
+      "debuggable": false
+    },
+    "현대화_검수_0.6.0-rc7.apk": {
+      "sha256": "4d8bb7a22e2fddb1f234c85e258b6651554de07a363ce61289b4d6f098fca3b8",
+      "bytes": 211585095,
+      "package": "ai.hyundaehwa.car.releaseqa",
+      "versionCode": 36,
+      "releaseCertificateSha256": "578e5484a2a02513aa0f10b5d1cf9caa052f46c9a2b3c5995dfe2a0a7e8aa27c",
+      "debuggable": false
+    }
+  },
+  "releaseBuild": {
+    "passed": true,
+    "lintErrors": 0,
+    "log": "release-build-rc7-delivery.log"
+  }
+}

@@ -93,11 +93,14 @@ class InterruptedPromptTest {
             assertNull(q.takeIfReady(state, destination, card, safe)); assertNull(q.pending)
         }
     }
-    @Test fun voiceDisabledOrLeavingScreenCancelsRatherThanPausingForLater() {
-        for (conditions in listOf(safe.copy(voiceEnabled = false), safe.copy(resumed = false))) {
-            val q = queue()
-            assertNull(q.takeIfReady(state, "전주", topic.id, conditions)); assertNull(q.pending)
-        }
+    @Test fun voiceDisabledCancelsButLeavingScreenHoldsUntilReturn() {
+        val disabled = queue()
+        assertNull(disabled.takeIfReady(state, "전주", topic.id, safe.copy(voiceEnabled = false)))
+        assertNull(disabled.pending)
+        val background = queue()
+        assertNull(background.takeIfReady(state, "전주", topic.id, safe.copy(resumed = false)))
+        assertNotNull(background.pending)
+        assertEquals("어느 산일까요?", background.takeIfReady(state, "전주", topic.id, safe)?.remainingText)
     }
     @Test fun pendingQuestionKeepsItsAnswerTimerOnHold() {
         val q = queue()

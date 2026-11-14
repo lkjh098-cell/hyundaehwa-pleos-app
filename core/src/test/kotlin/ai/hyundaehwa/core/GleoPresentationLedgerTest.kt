@@ -25,7 +25,8 @@ class GleoPresentationLedgerTest {
         val first = checkNotNull(catalog.select(127.0, 37.0, true, "quiz"))
         catalog.recordPresented(first)
         var state = HyundaehwaEngine.simulation().copy(regionId = area.id, regionLabel = area.label,
-            pendingRegionId = area.id, enabled = true, gear = Gear.D, speedKph = 80.0)
+            pendingRegionId = area.id, enabled = true, gear = Gear.D, speedKph = 80.0,
+            rotationRemaining = FourContentRotation.order)
         state = HyundaehwaEngine.reduce(state, ConversationEvent.RegionalTopicsChanged(area.id, catalog.engineTopics(area)))
         val selection = checkNotNull(catalog.select(127.0, 37.0, true, "quiz"))
         state = state.copy(regionStableMs = 3_000, silenceMs = state.silenceThresholdMs)

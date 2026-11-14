@@ -242,7 +242,8 @@ class HyundaehwaEngineTest {
         var s = tick(enterRegion(drive()), 3000)
         val oldOutput = s.output!!.id
         s = step(s, ConversationEvent.RegionChanged("", "위치 미확인", "목적지"))
-        assertEquals("region-b-story", s.topic?.id); assertNull(s.output)
+        assertEquals("region-b-story", s.topic?.id); assertEquals(oldOutput, s.output?.id)
+        s = step(s, ConversationEvent.OutputDone(oldOutput))
         s = enterRegion(s)
         s = tick(s, 4000)
         assertNull(s.output)
