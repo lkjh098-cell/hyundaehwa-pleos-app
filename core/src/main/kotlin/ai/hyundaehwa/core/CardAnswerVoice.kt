@@ -16,6 +16,13 @@ object SpokenCardAnswerParser {
         // Entire unique visible labels win before control-like words, negation fragments or numeric aliases.
         val exact = card.options.filter { normalized(it.label) == value }
         if (exact.size == 1) return SpokenCardAnswer(exact.single().id)
+        // Match an entire displayed option with a natural spoken answer ending before
+        // rejecting report/negation fragments that may occur inside the actual label.
+        val spokenLabels = card.options.filter { option ->
+            val label = normalized(option.label)
+            label.isNotBlank() && Regex("^$prefix${Regex.escape(label)}(?:$ending|(?:이)?라고생각(?:해|해요|합니다)|(?:이|가)?좋(?:아|아요)|(?:을|를)?고르겠습니다)$").matches(value)
+        }
+        if (spokenLabels.size == 1) return SpokenCardAnswer(spokenLabels.single().id)
         // A complete, unique keyword may be short (for example a spoken confirmation “예”).
         val exactKeywords = card.options.filter { option -> option.keywords.any { normalized(it) == value } }
         if (exactKeywords.size == 1) return SpokenCardAnswer(exactKeywords.single().id)
@@ -83,6 +90,7 @@ data class CardAnswerVoiceState(val token: Long = 0, val cardId: String = "", va
 sealed interface CardAnswerVoiceEvent {
     data class Begin(val token: Long, val cardId: String) : CardAnswerVoiceEvent
     data class Ready(val token: Long, val source: String) : CardAnswerVoiceEvent
+    data class Reconnecting(val token: Long) : CardAnswerVoiceEvent
     data class Partial(val token: Long, val text: String) : CardAnswerVoiceEvent
     data class Final(val token: Long, val text: String, val card: AdministrativeConversationTopic) : CardAnswerVoiceEvent
     data class Timeout(val token: Long) : CardAnswerVoiceEvent
@@ -94,12 +102,14 @@ object CardAnswerVoiceSession {
         if (event is CardAnswerVoiceEvent.Begin) return if (event.token > s.token)
             CardAnswerVoiceState(event.token, event.cardId, CardAnswerVoicePhase.PREPARING) else s
         val token = when (event) {
+            is CardAnswerVoiceEvent.Reconnecting -> event.token
             is CardAnswerVoiceEvent.Ready -> event.token; is CardAnswerVoiceEvent.Partial -> event.token
             is CardAnswerVoiceEvent.Final -> event.token; is CardAnswerVoiceEvent.Timeout -> event.token
             is CardAnswerVoiceEvent.Fail -> event.token; is CardAnswerVoiceEvent.Cancel -> event.token; else -> return s
         }
         if (token != s.token || !s.active) return s
         return when (event) {
+            is CardAnswerVoiceEvent.Reconnecting -> s.copy(phase = CardAnswerVoicePhase.PREPARING)
             is CardAnswerVoiceEvent.Ready -> s.copy(phase = CardAnswerVoicePhase.LISTENING, source = event.source)
             is CardAnswerVoiceEvent.Partial -> s.copy(transcript = event.text.take(120))
             is CardAnswerVoiceEvent.Final -> if (event.card.id != s.cardId) s else {

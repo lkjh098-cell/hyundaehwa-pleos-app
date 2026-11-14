@@ -45,9 +45,13 @@ class RelationshipVoiceInput(private val context: Context, private val blockReas
             if (!current(token, candidate)) return@post
             blockReason()?.let { fail(token, it); return@post }
             timeout?.let(main::removeCallbacks)
-            timeout = Runnable { if (current(token, candidate)) fail(token, "말씀을 확인하지 못했어요. 다시 누르거나 아래 버튼에서 골라 주세요.") }.also { main.postDelayed(it, 20_000) }
+            timeout = Runnable { if (current(token, candidate)) preparationFailed(token, candidate, fallback, "마이크가 시작되지 않았어요.") }.also { main.postDelayed(it, 10_000) }
             candidate.start(object : RecognitionEvents {
-                override fun started() { main.post { if (current(token, candidate)) update(RelationshipVoiceEvent.Ready(token, candidate.source)) } }
+                override fun started() { main.post { if (current(token, candidate)) {
+                    update(RelationshipVoiceEvent.Ready(token, candidate.source))
+                    timeout?.let(main::removeCallbacks)
+                    timeout = Runnable { if (current(token, candidate)) fail(token, "말씀을 확인하지 못했어요. 다시 누르거나 아래 버튼에서 골라 주세요.") }.also { main.postDelayed(it, 20_000) }
+                } } }
                 override fun text(text: String, final: Boolean) { main.post {
                     if (!current(token, candidate)) return@post
                     blockReason()?.let { fail(token, it); return@post }

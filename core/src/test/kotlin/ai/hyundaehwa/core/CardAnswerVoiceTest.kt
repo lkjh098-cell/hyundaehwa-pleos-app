@@ -23,6 +23,12 @@ class CardAnswerVoiceTest {
             assertTrue(result.data["reply"].toString().endsWith(card.explanation)); assertNull(result.choiceId)
         }
     }
+    @Test fun naturalFullLabelAnswersWorkWithoutAcceptingReportedOrAmbiguousSpeech() {
+        for (heard in listOf("도토리묵이라고 생각해요", "저는 도토리묵이 좋아요", "도토리묵을 고르겠습니다", "도토리묵이요"))
+            assertEquals("b", SpokenCardAnswerParser.parse(heard, card)?.choiceId, heard)
+        for (heard in listOf("도토리묵이라고 들었어", "도토리묵이 아니야", "황포묵하고 도토리묵이 좋아요"))
+            assertNull(SpokenCardAnswerParser.parse(heard, card), heard)
+    }
     @Test fun koreanSecondNumberAndNaturalAnswerPredicatesWork() {
         for (heard in listOf("이번", "이 번", "2번이 정답이야", "두 번째가 정답인 것 같아", "저는 도토리묵인 것 같아요")) {
             assertEquals("b", SpokenCardAnswerParser.parse(heard, card)?.choiceId, heard)

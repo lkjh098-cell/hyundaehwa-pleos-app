@@ -57,9 +57,13 @@ class TalkConversation(
         candidate.prepare({ main.post {
             if (!current(token) || recognizer !== candidate) return@post
             blockReason()?.let { cancel(it); return@post }
-            later(token, 30_000, "말씀을 확인하는 시간이 지났어요. 다시 눌러 주세요.")
+            timeout?.let(main::removeCallbacks)
+            timeout = Runnable { if (current(token) && recognizer === candidate) preparationFailed(token, candidate, fallback, "마이크가 시작되지 않았어요.") }.also { main.postDelayed(it, 10_000) }
             candidate.start(object : RecognitionEvents {
-                override fun started() { main.post { if (current(token) && recognizer === candidate) update(TalkEvent.Listening(token, candidate.source)) } }
+                override fun started() { main.post { if (current(token) && recognizer === candidate) {
+                    update(TalkEvent.Listening(token, candidate.source))
+                    later(token, 30_000, "말씀을 확인하는 시간이 지났어요. 다시 눌러 주세요.")
+                } } }
                 override fun text(text: String, final: Boolean) { main.post {
                     if (!current(token) || recognizer !== candidate) return@post
                     blockReason()?.let { cancel(it); return@post }
@@ -71,7 +75,9 @@ class TalkConversation(
                     }
                 } }
                 override fun ended() { main.post { if (current(token) && recognizer === candidate && state.phase in setOf(TalkPhase.PREPARING, TalkPhase.LISTENING)) later(token, 1_500, "말씀을 확인하지 못했어요. 다시 말하거나 직접 입력해 주세요.") } }
-                override fun failed(reason: String) { main.post { if (current(token) && recognizer === candidate) fail(token, reason) } }
+                override fun failed(reason: String) { main.post { if (current(token) && recognizer === candidate) {
+                    if (state.phase == TalkPhase.PREPARING) preparationFailed(token, candidate, fallback, reason) else fail(token, reason)
+                } } }
             })
         } }, { reason -> main.post { if (current(token) && recognizer === candidate) preparationFailed(token, candidate, fallback, reason) } })
     }

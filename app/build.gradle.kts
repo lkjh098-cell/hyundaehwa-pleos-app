@@ -17,8 +17,8 @@ android {
         applicationId = "ai.hyundaehwa.car"
         minSdk = 28
         targetSdk = 35
-        versionCode = 36
-        versionName = "0.6.0-rc7"
+        versionCode = 37
+        versionName = "0.6.0-rc8"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("boolean", "ENABLE_GEMINI_RELAY", "false")
         buildConfigField("String", "GLEO_RECIPIENT_PACKAGE", quoted(gleoRecipient.get()))

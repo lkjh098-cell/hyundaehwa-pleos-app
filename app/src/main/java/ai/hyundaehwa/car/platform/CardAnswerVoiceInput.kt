@@ -19,6 +19,7 @@ class CardAnswerVoiceInput(private val context: Context, private val blockReason
     private var sequence = 0L
     private var responseDeadline: CardAnswerVoiceDeadline? = null
     private var closed = false
+    private var noSpeechRestarts = 0
     var state = CardAnswerVoiceState(); private set
     private val focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
         .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
@@ -33,7 +34,7 @@ class CardAnswerVoiceInput(private val context: Context, private val blockReason
     fun listen(card: AdministrativeConversationTopic) {
         if (closed) return
         cancel("새 답변을 들어요.")
-        val token = ++sequence; responseDeadline = null
+        val token = ++sequence; responseDeadline = null; noSpeechRestarts = 0
         update(CardAnswerVoiceEvent.Begin(token, card.id))
         blockReason(card.id)?.let { fail(token, it); return }
         if (audio.requestAudioFocus(focus) != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
@@ -42,14 +43,15 @@ class CardAnswerVoiceInput(private val context: Context, private val blockReason
         prepare(token, card, PleosRecognitionBackend(context), false)
     }
     private fun prepare(token: Long, card: AdministrativeConversationTopic, candidate: RecognitionBackend, fallback: Boolean) {
+        if (expireIfNeeded(token)) { candidate.release(); return }
         recognizer = candidate
         timeout?.let(main::removeCallbacks)
-        timeout = Runnable { if (current(token, candidate)) preparationFailed(token, card, candidate, fallback, "음성 인식 서비스 응답이 없어요.") }.also { main.postDelayed(it, 5_000) }
+        timeout = Runnable { if (current(token, candidate)) preparationFailed(token, card, candidate, fallback, "음성 인식 서비스 응답이 없어요.") }.also { main.postDelayed(it, minOf(5_000L, responseDeadline?.remainingMs(SystemClock.elapsedRealtime()) ?: 5_000L)) }
         candidate.prepare({ main.post {
             if (!current(token, candidate)) return@post
             blockReason(card.id)?.let { cancel(it, true); return@post }
             timeout?.let(main::removeCallbacks)
-            timeout = Runnable { if (current(token, candidate)) fail(token, "마이크가 시작되지 않았어요. 한국어 기기 내 음성 인식을 확인해 주세요.") }.also { main.postDelayed(it, 10_000) }
+            timeout = Runnable { if (current(token, candidate)) preparationFailed(token, card, candidate, fallback, "마이크가 시작되지 않았어요. 한국어 기기 내 음성 인식을 확인해 주세요.") }.also { main.postDelayed(it, minOf(10_000L, responseDeadline?.remainingMs(SystemClock.elapsedRealtime()) ?: 10_000L)) }
             candidate.start(object : RecognitionEvents {
                 override fun started() { main.post {
                     if (!current(token, candidate)) return@post
@@ -76,7 +78,20 @@ class CardAnswerVoiceInput(private val context: Context, private val blockReason
                     if (state.phase == CardAnswerVoicePhase.PREPARING) { fail(token, "마이크가 시작되지 않았어요. 화면에서 답하거나 다시 눌러 주세요."); return@post }
                     scheduleResponseTimeout(token, candidate)
                 } }
-                override fun noSpeech() { main.post { if (current(token, candidate)) scheduleResponseTimeout(token, candidate) } }
+                override fun noSpeech() { main.post {
+                    if (!current(token, candidate)) return@post
+                    // Android terminates the recognizer after NO_MATCH/TIMEOUT. Do not leave a
+                    // dead microphone labelled as listening for the rest of the answer window.
+                    val deadline = responseDeadline
+                    if (deadline != null && RecognitionRetryPolicy.canRestart(noSpeechRestarts, deadline.remainingMs(SystemClock.elapsedRealtime()))) {
+                        noSpeechRestarts++
+                        update(CardAnswerVoiceEvent.Reconnecting(token))
+                        candidate.release(); recognizer = null
+                        prepare(token, card, if (fallback) AndroidOfflineRecognitionBackend(context) else PleosRecognitionBackend(context), fallback)
+                    } else if (deadline != null && deadline.remainingMs(SystemClock.elapsedRealtime()) == 0L) {
+                        val event = deadline.expiryEvent(token, state.transcript); release(); update(event)
+                    } else fail(token, "말씀을 인식하지 못했어요. 마이크를 눌러 다시 답해 주세요.")
+                } }
                 override fun failed(reason: String) { main.post {
                     if (!current(token, candidate)) return@post
                     if (state.phase == CardAnswerVoicePhase.PREPARING) preparationFailed(token, card, candidate, fallback, reason)
@@ -97,8 +112,16 @@ class CardAnswerVoiceInput(private val context: Context, private val blockReason
     private fun preparationFailed(token: Long, card: AdministrativeConversationTopic, candidate: RecognitionBackend, fallback: Boolean, reason: String) {
         timeout?.let(main::removeCallbacks); timeout = null
         candidate.release(); recognizer = null
+        if (expireIfNeeded(token)) return
         if (!fallback) prepare(token, card, AndroidOfflineRecognitionBackend(context), true)
         else fail(token, "$reason 아래 답변 버튼을 이용해 주세요.")
+    }
+    private fun expireIfNeeded(token: Long): Boolean {
+        val deadline = responseDeadline ?: return false
+        if (deadline.remainingMs(SystemClock.elapsedRealtime()) > 0) return false
+        val event = deadline.expiryEvent(token, state.transcript)
+        release(); update(event)
+        return true
     }
     private fun release() {
         timeout?.let(main::removeCallbacks); timeout = null
