@@ -1,6 +1,6 @@
 package ai.hyundaehwa.core
 
-/** Use the same region's sourced local preference and its authored choices as the v46 demonstration. */
+/** Build a local story from the same region's sourced preference and authored choices. */
 object LocationStoryCards {
     fun create(area: AdministrativeConversationArea, audience: String, difficulty: Int): AdministrativeConversationTopic? {
         val anchor = area.topics.firstOrNull { it.format == "quiz" && it.sourceKind == "official-place-fact" &&

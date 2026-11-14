@@ -92,7 +92,6 @@ class MainActivity : Activity() {
     private var answerVoiceState = CardAnswerVoiceState()
     private var cabinSoundOptIn = false
     private var cabinMonitor: CabinSoundMonitor? = null
-    private var lastCabinActivityAt = 0L
     private var answerVoiceOptIn = false
     private var answerVoicePermissionPending = false
     private var answerVoiceAttemptedCardId: String? = null
@@ -101,11 +100,14 @@ class MainActivity : Activity() {
     private var answerVisible = false
     private val answerSpeech = AnswerSpeechQueue()
     private val regionEntry = RegionEntryQueue()
-    // Full source cards accompany the core's immutable entry-topic snapshot.
-    private var entrySnapshotRegion = ""
-    private var entrySnapshotAudience = ""
-    private var entrySnapshotDifficulty = 0
-    private var entrySnapshotCards: List<AdministrativeConversationTopic> = emptyList()
+    /** Source cards and selection preferences stay together while a region entry is delivered. */
+    private data class EntryCardSnapshot(
+        val regionId: String,
+        val audience: String,
+        val difficulty: Int,
+        val cards: List<AdministrativeConversationTopic>,
+    )
+    private var entryCardSnapshot: EntryCardSnapshot? = null
     private var answerBubbleView: View? = null
     private var answerScrollPending = false
     private var conversationScrollY = 0
@@ -123,7 +125,7 @@ class MainActivity : Activity() {
         pinningCard = true
         try {
             pinnedCard = item; pinnedRegionId = region; pinnedShownAt = SystemClock.elapsedRealtime(); revealedAt = 0L
-            choiceCardId = item.id; selectedChoiceId = null; heardChoice = null; answerVisible = false; unansweredReveal = false
+            resetAnswerSelection(item.id); unansweredReveal = false
             answerVoiceAttemptedCardId = null; answerVoiceQuestionReady = !voiceEnabled
             conversationScrollY = 0; answerScrollPending = false
             discardAnswerSpeech(reset = true)
@@ -165,7 +167,7 @@ class MainActivity : Activity() {
             !(state.restDue && state.restAnnounced) && !state.speechActive && HyundaehwaEngine.view(state).canSpeak &&
             ((state.regionId !in state.presentedRegionIds && state.regionalTopicsRegionId == state.regionId &&
             state.regionalTopics.any { it.id !in state.usedTopicIds } && state.regionStableMs >= ConversationLimits.REGION_STABLE_MS) ||
-                DestinationConversation.requested(state) || state.restDue || state.arrived)
+                state.restDue || state.arrived)
         val feedbackFinished = revealedAt > 0 && now >= revealedAt && now - revealedAt >= PinnedQuizTiming.FEEDBACK_MS
         if (answerVisible && nextEligible && feedbackFinished) {
             pinnedCard = null; pinnedRegionId = null; revealedAt = 0L
@@ -193,13 +195,12 @@ class MainActivity : Activity() {
     private var weatherConsent = false
     private var weatherTripKey = ""
     private var weatherTried = false
-    private var weatherLoading = false
     private var weatherPresented = false
     private var weatherCard = ""
     private var weatherEpoch = 0L
     private var forecast: ArrivalForecast? = null
     private fun clearWeather() {
-        weatherEpoch++; weatherTripKey = ""; weatherCard = ""; forecast = null; weatherPresented = false; weatherTried = false; weatherLoading = false
+        weatherEpoch++; weatherTripKey = ""; weatherCard = ""; forecast = null; weatherPresented = false; weatherTried = false
         state = HyundaehwaEngine.reduce(state, ConversationEvent.WeatherReady(""))
     }
     private var heardChoice: String? = null
@@ -208,8 +209,6 @@ class MainActivity : Activity() {
     private var gleoLastTopicFormat = ""
     private var gleoLastTopicSource = ""
     private var gleoCardRegionId: String? = null
-    private var gleoCardAudience: String? = null
-    private var gleoCardDifficulty: Int? = null
     private enum class CatalogLoadState { LOADING, READY, FAILED }
     private var administrativeCatalog: AdministrativeConversationCatalog? = null
     private var catalogLoadState = CatalogLoadState.LOADING
@@ -294,7 +293,6 @@ class MainActivity : Activity() {
                 if (!resumed || !cabinSoundOptIn) return@post
                 val rms = observation.rms
                 if (observation.available && rms != null) {
-                    if (rms >= ConversationLimits.LOW_RMS) lastCabinActivityAt = SystemClock.elapsedRealtime()
                     if (rms >= 0.04) {
                         if (observation.echoCancellation && voiceState.active && voiceState.purpose == VoicePurpose.PROMPT) {
                             activeSpeechId?.let { rememberInterruptedPrompt(it, speech?.remainingText.orEmpty()) }
@@ -366,7 +364,7 @@ class MainActivity : Activity() {
             render(force = true)
             maybeStartAnswerVoice()
         }
-        if ((BuildConfig.DEBUG && BuildConfig.ENABLE_GEMINI_RELAY)) {
+        if (BuildConfig.DEBUG && BuildConfig.ENABLE_GEMINI_RELAY) {
         relayStore = RelayConnectionStore(this)
         relaySettings = relayStore.read()
         talk = TalkConversation(this, { relaySettings }, { voiceTestBlockReason() }, {
@@ -415,9 +413,8 @@ class MainActivity : Activity() {
         if (!GleoInterface.canAcceptActions(this)) return
         val input = GleoInterface.parse(intent) ?: return
         welcomePending = false // Gleo owns the final response for this invocation.
-        clearStaleGleoCard()
         val ordinaryVoiceBlocked = regionEntry.blocksContent || (!emulatorMode && manualExternalMedia) || state.guards.isNotEmpty() || !HyundaehwaEngine.audioClear(state) || (!emulatorMode && currentSnapshot.navigationVoiceActive == true)
-        val topicContext = currentTopicContext(input.topicType)
+        val topicContext = currentTopicContext()
         val restCard = if (state.restDue && state.restAnnounced && !emulatorMode && !state.arrived)
             if (restVoiceStage == "confirm" && restVoiceReady) restConfirmationCard() else realRestCard() else null
         val card = if (input.functionName == GleoTalkActions.ANSWER) restCard ?: currentAnswerCard() else null
@@ -463,8 +460,6 @@ class MainActivity : Activity() {
                 gleoLastTopicFormat = when (it.topic.contentRotationKey) { "destination" -> "목적지 이야기"; "balance" -> "밸런스게임"; "quiz" -> "위치 기반 퀴즈"; else -> "이곳의 이야기" }
                 gleoLastTopicSource = "${it.area.label} · ${it.topic.contentNote}\n콘텐츠 자료: ${it.topic.sourceTitle}\n위치 판별: ${it.boundarySourceTitle} · ${it.boundaryVintage}"
                 gleoCardRegionId = it.area.id
-                gleoCardAudience = activeAudience
-                gleoCardDifficulty = effectiveDifficulty
             }
         } else if (input.functionName == GleoTalkActions.TOPIC && pinnedCard == null) {
             clearGleoCard()
@@ -503,8 +498,7 @@ class MainActivity : Activity() {
 
     private fun snapshotEntryCards(regionId: String) {
         val area = administrativeCatalog?.areaById(regionId) ?: return
-        entrySnapshotRegion = regionId; entrySnapshotAudience = activeAudience
-        entrySnapshotDifficulty = effectiveDifficulty; entrySnapshotCards = regionalCards(area).toList()
+        entryCardSnapshot = EntryCardSnapshot(regionId, activeAudience, effectiveDifficulty, regionalCards(area).toList())
     }
     private fun refreshRegionEntryHold() {
         // A pending later region cannot overtake an already pinned question or delivered entry.
@@ -529,7 +523,7 @@ class MainActivity : Activity() {
         // Entry announcement is independent of the silence timer. Inventory must be loaded
         // before Started so the core snapshots the spoken region rather than a later region.
         if (administrativeCatalog == null || state.regionId.isBlank()) return
-        if (!emulatorMode && currentSnapshot.locationUpdatedAtMs?.let { SystemClock.elapsedRealtime() - it in 0..8_000 } != true) return
+        if (!emulatorMode && !signalIsFresh(currentSnapshot.locationUpdatedAtMs)) return
         refreshRegionalTopics()
         if (state.regionalTopicsRegionId != state.regionId) return
         val conditions = RegionEntryConditions(resumed, voiceEnabled, localAudioReady,
@@ -582,11 +576,10 @@ class MainActivity : Activity() {
         state = if (!emulatorMode && guarded) HyundaehwaEngine.reduceBatch(state, listOf(ConversationEvent.VehicleEvidenceChanged(parkedEvidence(currentSnapshot, SystemClock.elapsedRealtime())), event)) else HyundaehwaEngine.reduce(state, event)
         answerVoice?.enforce()
         if (!state.restDue) { realRestChoice = null; restStatus = null; restHeard = null; restVoiceStage = ""; restVoiceReady = false; restVoiceAttempted = false; restConfirmationHeard = null; pendingRestStatusSpeech = null }
-        if (pinnedCard == null && before.topic?.id != state.topic?.id) { answerVisible = false; selectedChoiceId = null; heardChoice = null; choiceCardId = "" }
+        if (pinnedCard == null && before.topic?.id != state.topic?.id) { resetAnswerSelection() }
         if (event == ConversationEvent.Stop || event is ConversationEvent.ScenarioChanged) {
             pinnedCard = null; pinnedRegionId = null; lastAutoCommittedOutput = null; clearGleoCard()
         }
-        clearStaleGleoCard()
         talk?.enforce()
         cancelUnsafeSpeech()
         render()
@@ -670,7 +663,7 @@ class MainActivity : Activity() {
             speech?.audioFocusBlocked == true || (!emulatorMode && currentSnapshot.navigationVoiceActive == true)) return
         // A missing maneuver signal can hold content, but it is not proof of a hazard.
         val now = SystemClock.elapsedRealtime()
-        val verifiedHazard = emulatorMode || (currentSnapshot.maneuverUpdatedAtMs?.let { now - it in 0..8_000 } == true &&
+        val verifiedHazard = emulatorMode || (signalIsFresh(currentSnapshot.maneuverUpdatedAtMs, now) &&
             (currentSnapshot.nearManeuver == true || currentSnapshot.tunnel == true))
         if (!verifiedHazard) return
         safetyNoticeIssued = true
@@ -685,11 +678,13 @@ class MainActivity : Activity() {
         return bank.filter { it.format in setOf("quiz", "balance") }
     }
 
-    private fun currentTopicContext(topicType: String? = null): GleoTopicContext? {
+    private fun signalIsFresh(observedAt: Long?, now: Long = SystemClock.elapsedRealtime()) =
+        SignalFreshness.isFresh(observedAt, now)
+
+    private fun currentTopicContext(): GleoTopicContext? {
         val snapshot = currentSnapshot
         if (regionEntry.blocksContent || pinnedCard != null || state.regionId in state.presentedRegionIds || emulatorMode) return null
-        val age = snapshot.locationUpdatedAtMs?.let { SystemClock.elapsedRealtime() - it }
-        if (age == null || age !in 0..8_000) return null
+        if (!signalIsFresh(snapshot.locationUpdatedAtMs)) return null
         val catalog = administrativeCatalog ?: return null
         val area = catalog.areaAt(snapshot.longitude, snapshot.latitude)?.takeIf { it.id == state.regionId } ?: return null
         val cards = regionalCards(area).filter { it.id !in state.usedTopicIds }
@@ -812,21 +807,22 @@ class MainActivity : Activity() {
     private fun refreshRegionalTopics() {
         // Development inputs do not represent fresh SDK coordinates; no synthetic location in real mode.
         val snapshot = currentSnapshot
-        val age = snapshot.locationUpdatedAtMs?.let { SystemClock.elapsedRealtime() - it }
         val area = if (emulatorMode) administrativeCatalog?.areaById(state.regionId)
-            else if (age != null && age in 0..8_000) administrativeCatalog?.areaAt(snapshot.longitude, snapshot.latitude)
+            else if (signalIsFresh(snapshot.locationUpdatedAtMs)) administrativeCatalog?.areaAt(snapshot.longitude, snapshot.latitude)
             else null
         val available = area?.let { found -> regionalCards(found).map { it.engineTopic(found.id) } }.orEmpty()
         state = HyundaehwaEngine.reduce(state, ConversationEvent.RegionalTopicsChanged(area?.id.orEmpty(), available))
-        clearStaleGleoCard()
+    }
+    private fun resetAnswerSelection(cardId: String = "") {
+        choiceCardId = cardId
+        selectedChoiceId = null
+        heardChoice = null
+        answerVisible = false
     }
     private fun clearGleoCard() {
         gleoStructuredCard = null; gleoLastTopic = ""; gleoLastTopicFormat = ""; gleoLastTopicSource = ""
-        gleoCardRegionId = null; gleoCardAudience = null; gleoCardDifficulty = null
-        choiceCardId = ""; selectedChoiceId = null; heardChoice = null; answerVisible = false
-    }
-    private fun clearStaleGleoCard() {
-        // The displayed card is independent of live location and preference changes.
+        gleoCardRegionId = null
+        resetAnswerSelection()
     }
     private fun playEntryWelcome() {
         if (!welcomePending || emulatorMode || voiceState.active || talkState.active || state.output != null) return
@@ -905,16 +901,6 @@ class MainActivity : Activity() {
         if (!answerVoiceOptIn && relationshipChosen && canConfigure()) container.addView(button("음성 답변과 침묵 감지 켜기", selectedFill, teal) {
             configureAnswerVoice()
         }, LinearLayout.LayoutParams(-1, dp(52)).apply { topMargin = dp(8) })
-    }
-    private fun capabilityRow(container: LinearLayout, icon: String, title: String, detail: String) {
-        val line = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(8), 0, dp(8)) }
-        line.addView(text(icon, 21f, muted).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(dp(40), dp(44)))
-        val labels = column().apply { setPadding(dp(8), 0, 0, 0) }
-        labels.addView(text(title, 16f, ink, true))
-        labels.addView(text(detail, 14f, muted).apply { setPadding(0, dp(4), 0, 0) })
-        line.addView(labels, LinearLayout.LayoutParams(0, -2, 1f))
-        container.addView(line)
-        container.addView(View(this).apply { setBackgroundColor(Color.rgb(224, 226, 228)) }, LinearLayout.LayoutParams(-1, dp(1)))
     }
     private fun renderTalk(container: LinearLayout) {
         if (!(BuildConfig.DEBUG && BuildConfig.ENABLE_GEMINI_RELAY)) { renderGleo(container); return }
@@ -1155,8 +1141,7 @@ class MainActivity : Activity() {
         val areaLabel = if (catalogLoadState == CatalogLoadState.LOADING) "지역 콘텐츠 준비 중"
             else if (catalogLoadState == CatalogLoadState.FAILED) "지역 콘텐츠 불러오기 실패"
             else if (emulatorMode) state.regionLabel else {
-            val age = currentSnapshot.locationUpdatedAtMs?.let { SystemClock.elapsedRealtime() - it }
-            if (age != null && age in 0..8_000) administrativeCatalog?.areaAt(currentSnapshot.longitude, currentSnapshot.latitude)?.label ?: "위치 미확인" else "위치 미확인"
+            if (signalIsFresh(currentSnapshot.locationUpdatedAtMs)) administrativeCatalog?.areaAt(currentSnapshot.longitude, currentSnapshot.latitude)?.label ?: "위치 미확인" else "위치 미확인"
         }
         val restrictedScreen = !emulatorMode && (!currentSnapshot.vehicleConnected || state.gear == Gear.UNKNOWN || currentSnapshot.uxAllowsSetup != true)
         val connectionLabel = if (!currentSnapshot.vehicleConnected || state.gear == Gear.UNKNOWN) "차량 신호 확인 중" else "차량 연결됨"
@@ -1279,7 +1264,7 @@ class MainActivity : Activity() {
             content.addView(text("소리 입력을 확인하고 있어요", 24f, teal, true).apply { setPadding(dp(20), dp(18), dp(20), dp(10)); background = messageBackground() })
             content.addView(text("입력을 확인할 수 없으면 침묵을 판단하거나 자동으로 화두를 건네지 않아요.", 16f, muted).apply { setPadding(dp(20), dp(12), dp(20), dp(12)) })
         }
-        else if ((BuildConfig.DEBUG && BuildConfig.ENABLE_GEMINI_RELAY)) {
+        else if (BuildConfig.DEBUG && BuildConfig.ENABLE_GEMINI_RELAY) {
             content.addView(conversationMark(108).apply { setPadding(0, dp(14), 0, dp(26)) })
             content.addView(text(title, 38f, ink, true).apply { setLineSpacing(dp(8).toFloat(), 1f) })
             content.addView(text(detail, 17f, muted).apply { setPadding(0, dp(20), 0, dp(18)); setLineSpacing(dp(7).toFloat(), 1f) })
@@ -1385,9 +1370,8 @@ class MainActivity : Activity() {
         }.apply { isEnabled = canConfigure() })
         sideContent.addView(text("현재 지역", 14f, muted).apply { setPadding(0, dp(17), 0, dp(6)) })
         sideContent.addView(text(areaLabel, 17f, ink, true))
-        val currentAgeMs = currentSnapshot.locationUpdatedAtMs?.let { SystemClock.elapsedRealtime() - it }
         val topicArea = if (emulatorMode) administrativeCatalog?.areaById(state.regionId)
-            else if (currentAgeMs != null && currentAgeMs in 0..8_000) administrativeCatalog?.areaAt(currentSnapshot.longitude, currentSnapshot.latitude) else null
+            else if (signalIsFresh(currentSnapshot.locationUpdatedAtMs)) administrativeCatalog?.areaAt(currentSnapshot.longitude, currentSnapshot.latitude) else null
         if (topicArea != null && administrativeCatalog?.available(topicArea, activeAudience, effectiveDifficulty).orEmpty().none { it.format == "quiz" }) {
             sideContent.addView(text("이 지역의 ${QuestionDifficulty.label(effectiveDifficulty)} 난이도 퀴즈는 준비 중이에요.", 11f, muted).apply { setPadding(0, dp(6), 0, 0) })
         }
@@ -1406,7 +1390,7 @@ class MainActivity : Activity() {
         }
         sideContent.addView(button(if (answerVoiceOptIn) "기기 내 음성 답변 켜짐 · 끄기" else "기기 내 음성 답변 사용", selectedFill, teal) { configureAnswerVoice() })
         sideContent.addView(button(if (voiceEnabled) "음성 안내 켜짐" else "음성 안내 켜기", Color.TRANSPARENT, muted) { voiceEnabled = !voiceEnabled; if (!emulatorMode) getSharedPreferences("conversation_profile", MODE_PRIVATE).edit().putBoolean("spoken_guidance", voiceEnabled).apply(); if (!voiceEnabled) { answerSpeech.cancel(); clearPromptResume(); speech?.stop(); dispatch(ConversationEvent.SpeechChanged(false)) }; render(force = true); playPendingOutput() })
-        if ((BuildConfig.DEBUG && BuildConfig.ENABLE_GEMINI_RELAY)) sideContent.addView(button(if (relaySettings.valid) "대화 서버 설정됨 · 설정" else "대화 서버 연결 설정", selectedFill, teal) { parked { configureRelay() } }.apply { isEnabled = canConfigure() })
+        if (BuildConfig.DEBUG && BuildConfig.ENABLE_GEMINI_RELAY) sideContent.addView(button(if (relaySettings.valid) "대화 서버 설정됨 · 설정" else "대화 서버 연결 설정", selectedFill, teal) { parked { configureRelay() } }.apply { isEnabled = canConfigure() })
         renderVoiceStatus(sideContent)
         if (BuildConfig.DEBUG) sideContent.addView(button("개발자 도구", Color.TRANSPARENT, muted) {
             if (canOpenEmulator()) { settingsOpen = false; emulatorTab = true; render(force = true) }
@@ -1548,7 +1532,7 @@ class MainActivity : Activity() {
         val topic = state.topic ?: return
         val area = administrativeCatalog?.areaById(topic.regionId)
         val bankCard = pinnedCard ?: DestinationConversation.activeCard(state)
-            ?: entrySnapshotCards.firstOrNull { entrySnapshotRegion == topic.regionId && it.id == topic.id }
+            ?: entryCardSnapshot?.takeIf { it.regionId == topic.regionId }?.cards?.firstOrNull { it.id == topic.id }
             ?: area?.let { regionalCards(it).firstOrNull { card -> card.id == topic.id } }
         if (bankCard != null) { pinCard(bankCard, topic.regionId); renderBankCard(content, bankCard) }
         else {
@@ -1565,14 +1549,15 @@ class MainActivity : Activity() {
         if (output.id == lastAutoCommittedOutput || !resumed) return
         val outputId = output.id
         content.post {
+            val entry = entryCardSnapshot?.takeIf { it.regionId == topic.regionId }
             val visible = android.graphics.Rect()
             if (resumed && !settingsOpen && parkedDialog == null && !emulatorTab &&
                 content.isAttachedToWindow && content.isShown && content.getGlobalVisibleRect(visible) &&
                 state.guards.isEmpty() && state.topic?.id == topic.id && state.output?.id == outputId &&
                 pinnedCard?.id == topic.id && lastAutoCommittedOutput != outputId &&
                 administrativeCatalog?.recordPresentedById(topic.regionId, topic.id,
-                    if (entrySnapshotRegion == topic.regionId) entrySnapshotAudience else activeAudience,
-                    if (entrySnapshotRegion == topic.regionId) entrySnapshotDifficulty else effectiveDifficulty) == true) {
+                    entry?.audience ?: activeAudience,
+                    entry?.difficulty ?: effectiveDifficulty) == true) {
                 state = HyundaehwaEngine.reduce(state, ConversationEvent.LocalTopicDisplayed(topic.id))
                 lastAutoCommittedOutput = outputId
                 playPendingOutput()
@@ -1584,7 +1569,7 @@ class MainActivity : Activity() {
         }
     }
     private fun renderBankCard(content: LinearLayout, item: AdministrativeConversationTopic) {
-        if (choiceCardId != item.id) { choiceCardId = item.id; selectedChoiceId = null; heardChoice = null; answerVisible = false; unansweredReveal = false }
+        if (choiceCardId != item.id) { resetAnswerSelection(item.id); unansweredReveal = false }
         val card = column().apply { setPadding(dp(24), dp(24), dp(24), dp(22)); background = questionCardBackground() }
         val name = when {
             item.sourceKind == DestinationConversation.SOURCE -> "목적지 이야기"
@@ -1670,7 +1655,7 @@ class MainActivity : Activity() {
     private fun aheadFacilities(): List<AheadFacility> {
         val s = currentSnapshot
         val now = SystemClock.elapsedRealtime()
-        if (s.routeActive != true || s.destinationArrived == true || s.maneuverUpdatedAtMs?.let { now - it in 0..8_000 } != true) return emptyList()
+        if (s.routeActive != true || s.destinationArrived == true || !signalIsFresh(s.maneuverUpdatedAtMs, now)) return emptyList()
         return s.upcomingFacilities
     }
     private fun restConfirmationCard(): AdministrativeConversationTopic = AdministrativeConversationTopic(
@@ -1861,7 +1846,7 @@ class MainActivity : Activity() {
             return
         }
         val remaining = s.remainingSeconds ?: return
-        if (s.routeActive != true || s.destinationCoordinatesAtMs?.let { SystemClock.elapsedRealtime() - it in 0..8_000 } != true ||
+        if (s.routeActive != true || !signalIsFresh(s.destinationCoordinatesAtMs) ||
             s.destination.isNullOrBlank() || s.destinationLatitude == null || s.destinationLongitude == null) return
         val coarse = DestinationWeather.key(s.destinationLatitude, s.destinationLongitude) ?: return
         val trip = "${s.destination}:$coarse"
@@ -1869,12 +1854,12 @@ class MainActivity : Activity() {
         if (remaining <= 0.0) return
         val eta = System.currentTimeMillis() / 1000 + remaining.toLong()
         if (!weatherTried) {
-            weatherTried = true; weatherLoading = true
+            weatherTried = true
             val epoch = weatherEpoch
             Thread({
                 val next = runCatching { DestinationWeather.fetch(coarse, eta) }.getOrNull()
                 handler.post {
-                    if (weatherEpoch == epoch && weatherConsent && !isDestroyed) { weatherLoading = false; forecast = next }
+                    if (weatherEpoch == epoch && weatherConsent && !isDestroyed) { forecast = next }
                 }
             }, "destination-weather").apply { isDaemon = true; start() }
         }
@@ -1902,11 +1887,10 @@ class MainActivity : Activity() {
         currentSnapshot = snapshot
         platformStatus = snapshot.status
         val now = SystemClock.elapsedRealtime()
-        fun fresh(at: Long?) = at != null && now - at in 0..8_000
         val evidence = parkedEvidence(snapshot, now)
         vehicleParked = evidence.isParked(now)
         // Resolve the current administrative polygon; a destination/address label never substitutes for location.
-        val area = if (fresh(snapshot.locationUpdatedAtMs)) administrativeCatalog?.areaAt(snapshot.longitude, snapshot.latitude) else null
+        val area = if (signalIsFresh(snapshot.locationUpdatedAtMs, now)) administrativeCatalog?.areaAt(snapshot.longitude, snapshot.latitude) else null
         val region = area?.let { it.id to it.label } ?: ("" to "위치 미확인")
         val media = MediaObservation.resolve(snapshot.mediaActive, snapshot.mediaUpdatedAtMs, now, speech?.state?.active == true, state.mediaActive, manualExternalMedia, snapshot.playbackUsages)
         if (snapshot.destinationArrived == true) { regionEntry.clear(); state = state.copy(regionEntryHeld = false) }
@@ -1915,15 +1899,15 @@ class MainActivity : Activity() {
         // One snapshot is one decision. Do not emit using a new gear with old region/media/TBT.
         state = HyundaehwaEngine.reduceBatch(state, listOf(
             ConversationEvent.VehicleEvidenceChanged(evidence),
-            ConversationEvent.SeatsChanged(if (fresh(snapshot.seatUpdatedAtMs)) snapshot.frontPassengerOccupied == true else false,
-                if (fresh(snapshot.seatUpdatedAtMs)) snapshot.rearOccupantCount ?: 0 else 0, snapshot.sourceLabel),
+            ConversationEvent.SeatsChanged(if (signalIsFresh(snapshot.seatUpdatedAtMs, now)) snapshot.frontPassengerOccupied == true else false,
+                if (signalIsFresh(snapshot.seatUpdatedAtMs, now)) snapshot.rearOccupantCount ?: 0 else 0, snapshot.sourceLabel),
             ConversationEvent.MediaChanged(media),
             ConversationEvent.RestOptionsChanged(aheadFacilities().map { it.entrance.label }),
-            ConversationEvent.FocusChanged(FocusKind.JUNCTION, snapshot.navigationVoiceActive == true || (!vehicleParked && (!fresh(snapshot.maneuverUpdatedAtMs) || snapshot.nearManeuver != false))),
-            ConversationEvent.FocusChanged(FocusKind.TUNNEL, fresh(snapshot.maneuverUpdatedAtMs) && snapshot.tunnel == true),
+            ConversationEvent.FocusChanged(FocusKind.JUNCTION, snapshot.navigationVoiceActive == true || (!vehicleParked && (!signalIsFresh(snapshot.maneuverUpdatedAtMs, now) || snapshot.nearManeuver != false))),
+            ConversationEvent.FocusChanged(FocusKind.TUNNEL, signalIsFresh(snapshot.maneuverUpdatedAtMs, now) && snapshot.tunnel == true),
             ConversationEvent.RegionChanged(region.first, region.second, destination, snapshot.sourceLabel)
         ) + listOfNotNull(snapshot.destinationArrived?.let { ConversationEvent.ArrivalChanged(it) }))
-        if (pinnedCard == null && beforeTopic != state.topic?.id) { weatherCard = ""; answerVisible = false; selectedChoiceId = null; heardChoice = null; choiceCardId = "" }
+        if (pinnedCard == null && beforeTopic != state.topic?.id) { weatherCard = ""; resetAnswerSelection() }
         refreshRegionalTopics()
         updateDestinationWeather(snapshot)
         talk?.enforce()
@@ -2040,5 +2024,4 @@ class MainActivity : Activity() {
         return RippleDrawable(ColorStateList.valueOf(if (primary) accentPressed else Color.argb(35, 19, 20, 23)), content, shape(Color.WHITE))
     }
     private fun rounded(color: Int, radius: Int) = GradientDrawable().apply { setColor(color); cornerRadius = dp(radius).toFloat() }
-    private fun space(width: Int) = View(this).apply { layoutParams = LinearLayout.LayoutParams(dp(width), 1) }
 }

@@ -1,0 +1,22 @@
+{
+  "webBuild": "maintainability-v51-20261114",
+  "webTests": 865,
+  "webPostBuildTests": 197,
+  "nativeTests": {
+    "tests": 251,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "nativeAssetResourceManifestChanges": [],
+  "apk": {
+    "file": "app/build/outputs/apk/release/app-release.apk",
+    "sha256": "7ae4f0ff5460c22635415b7f469b09750a227dead936fdb3a12681b669114599",
+    "bytes": 210966381
+  },
+  "limits": [
+    "No new physical microphone or real-vehicle validation",
+    "Native optional Gemini development adapter retained disabled; deprecated storage API unchanged",
+    "Road address search improvement not included"
+  ]
+}

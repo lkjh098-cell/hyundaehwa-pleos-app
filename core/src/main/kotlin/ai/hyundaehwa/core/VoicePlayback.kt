@@ -5,7 +5,7 @@ enum class VoicePhase(val label: String) {
     COMPLETED("재생 완료"), FAILED("재생 실패"), CANCELLED("재생 중단")
 }
 enum class VoiceSource(val label: String) { UNSELECTED("엔진 확인 중"), PLEOS_ON_DEVICE("Pleos 기기 내 음성"), ANDROID_FALLBACK("Android 대체 음성"), RECORDED_CACHE("앱에 저장된 한국어 음성") }
-/** A completed, verified player has a shorter known tail; uncertain synthesis/interruption keeps its old guard. */
+/** Completed playback uses a shorter echo tail; uncertain synthesis or interruption requires the full guard. */
 object VoiceEchoDelay {
     fun milliseconds(state: VoicePlaybackState): Long =
         if (state.source == VoiceSource.RECORDED_CACHE && state.phase == VoicePhase.COMPLETED) 300L else 650L

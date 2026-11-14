@@ -1,6 +1,6 @@
 package ai.hyundaehwa.core
 
-/** Authored destination choices from the v46 demonstration, not assertions about availability. */
+/** Authored destination discussion choices; these do not assert local availability. */
 internal data class DestinationChoice(val id: String, val prompt: String, val first: String, val second: String, val firstKeywords: List<String>, val secondKeywords: List<String>)
 internal object DestinationTemplates {
     val choices = mapOf(

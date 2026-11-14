@@ -3,9 +3,6 @@ package ai.hyundaehwa.core
 /** Selected destination text is a conversation subject, never a substitute for current GPS. */
 object DestinationConversation {
     const val SOURCE = "editorial-destination-preference"
-    /** Silence-triggered destination prompts were removed; destination cards remain in regional rotation. */
-    @Suppress("UNUSED_PARAMETER")
-    fun requested(state: ConversationState): Boolean = false
     fun card(destination: String, relationship: Relationship, sequence: Int): AdministrativeConversationTopic? {
         val name = destination.trim().take(160)
         if (name.isBlank()) return null
@@ -46,8 +43,5 @@ object DestinationConversation {
         val sequence = (state.destinationPromptCount - 1).coerceAtLeast(0)
         return listOfNotNull(card(state.destination, state.relationship, sequence),
             rotationCard(state.destination, state.relationship, sequence, state.regionId)).firstOrNull { it.id == state.topic?.id }
-    }
-    fun topic(state: ConversationState): Topic? = card(state.destination, state.relationship, state.destinationPromptCount)?.let {
-        it.engineTopic(state.regionId)
     }
 }

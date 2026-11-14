@@ -11,7 +11,7 @@ class DestinationConversationTest {
         var s = step(base(), ConversationEvent.Tick(300000))
         s = step(s, ConversationEvent.UserResponded); s = step(s, ConversationEvent.SoundLevel(0.8))
         s = step(s, ConversationEvent.Tick(600000))
-        assertNull(s.output); assertNull(s.topic); assertFalse(DestinationConversation.requested(s))
+        assertNull(s.output); assertNull(s.topic)
         assertEquals(0L, s.destinationSilenceMs); assertEquals(0, s.destinationPromptCount)
     }
     @Test fun destinationActivityStillUsesActualSelectedDestinationAsARegionalRotationCard() {
