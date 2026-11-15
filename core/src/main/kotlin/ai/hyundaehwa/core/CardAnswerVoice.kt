@@ -7,6 +7,20 @@ object SpokenCardAnswerParser {
         listOf("3", "3번", "삼번", "세번째", "세번", "셋째"), listOf("4", "4번", "사번", "네번째", "넷째"))
     private const val prefix = "(?:(?:저는|나는|난|나|제가|제생각에는|아|음|어|정답은|답은|그건|이건))*"
     private const val ending = "(?:(?:이|가|은|는)?정답(?:이야|이에요|입니다|인것같아|인것같아요)|(?:인|일)?것같(?:아|아요)|같(?:아|아요|은데|은데요)|(?:으로|로|에)?(?:할게|할게요|갈게|갈게요|가요|가겠습니다|선택|선택할게|선택할게요|고를게|고를게요)|(?:이요|요|이에요|예요|이야|야|입니다))?"
+    private val genericFragments = setOf("그곳", "이곳", "다른", "같은", "있는", "없는", "하는", "위한", "받은", "함께", "각자", "먼저", "그대로", "모두", "사람", "장소", "지역", "방식", "이용", "통해", "때문에", "자체", "직접", "제작한", "만든", "여러", "저곳", "우리", "현재", "다음", "모든", "작은", "큰", "새로운", "만들어", "있어요", "없어요", "보기", "하기", "가요", "해요")
+    private fun shortLabels(option: AdministrativeConversationOption, card: AdministrativeConversationTopic): List<String> {
+        val words = option.label.split(Regex("[^가-힣a-zA-Z0-9]+" )).filter { it.isNotBlank() }
+        val phrases = mutableSetOf<String>()
+        for (start in words.indices) for (end in start + 1..words.size) {
+            val phrase = normalized(words.subList(start, end).joinToString(""))
+            if (phrase.length >= 2 && phrase !in genericFragments &&
+                words.subList(start, end).any { normalized(it).length >= 2 && normalized(it) !in genericFragments } &&
+                card.options.filter { it.id != option.id }.none { other ->
+                    (listOf(other.label) + other.keywords).any { phrase in normalized(it) }
+                }) phrases += phrase
+        }
+        return phrases.toList()
+    }
     fun parse(text: String, card: AdministrativeConversationTopic): SpokenCardAnswer? {
         if (text.isBlank() || text.length > 120) return null
         val raw = text.trim()
@@ -40,7 +54,7 @@ object SpokenCardAnswerParser {
         val miss = disclosure || Regex("^(?:아|저는?|나는?|이번에는?|이번엔)?(?:잘)?(?:모르겠|몰라|정답(?:을)?알려|정답[은이]뭐).{0,8}$").matches(value)
         if (card.format == "quiz" && miss) return SpokenCardAnswer(null, true)
         val hits = card.options.filterIndexed { index, option ->
-            val names = (listOf(option.label) + option.keywords).map(::normalized).filter { it.length >= 2 }.distinct()
+            val names = (listOf(option.label) + option.keywords + shortLabels(option, card)).map(::normalized).filter { it.length >= 2 }.distinct()
             val directional = if (card.options.size == 2) when (index) {
                 0 -> listOf("앞에거", "앞에꺼", "앞의거", "앞에것", "앞의것", "앞거", "앞에있는거", "앞쪽", "전자", "첫번째거", "첫번째것")
                 else -> listOf("뒤에거", "뒤에꺼", "뒤의거", "뒤에것", "뒤의것", "뒤거", "뒤에있는거", "뒤쪽", "후자", "두번째거", "두번째것")

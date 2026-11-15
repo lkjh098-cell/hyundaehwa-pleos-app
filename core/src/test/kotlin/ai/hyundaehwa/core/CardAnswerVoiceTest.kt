@@ -29,6 +29,20 @@ class CardAnswerVoiceTest {
         for (heard in listOf("도토리묵이라고 들었어", "도토리묵이 아니야", "황포묵하고 도토리묵이 좋아요"))
             assertNull(SpokenCardAnswerParser.parse(heard, card), heard)
     }
+    @Test fun tonginMarketShortNounAndDisplayedOrdinalResolveAfterOptionShuffle() {
+        val shuffled = card.copy(options = listOf(
+            AdministrativeConversationOption("b", "가게별 포인트 카드"),
+            AdministrativeConversationOption("c", "교통카드 정기권"),
+            AdministrativeConversationOption("a", "시장이 자체 제작한 엽전")))
+        for (heard in listOf("엽전", "엽전이요", "3번 엽전", "삼 번 엽전이요", "세 번째 엽전", "엽전 3번", "정답은 3번 엽전입니다"))
+            assertEquals("a", SpokenCardAnswerParser.parse(heard, shuffled)?.choiceId, heard)
+        for (heard in listOf("1번 엽전", "2번 엽전", "3번 카드", "자체", "제작한", "3번 자체", "자체 제작한", "엽전 아니야", "엽전이라고 들었어", "포인트 카드 또는 엽전"))
+            assertNull(SpokenCardAnswerParser.parse(heard, shuffled), heard)
+        val shared = shuffled.copy(options = listOf(
+            AdministrativeConversationOption("a", "노란색 엽전"), AdministrativeConversationOption("b", "파란색 엽전")))
+        assertNull(SpokenCardAnswerParser.parse("엽전", shared))
+        assertNull(SpokenCardAnswerParser.parse("1번 엽전", shared))
+    }
     @Test fun koreanSecondNumberAndNaturalAnswerPredicatesWork() {
         for (heard in listOf("이번", "이 번", "2번이 정답이야", "두 번째가 정답인 것 같아", "저는 도토리묵인 것 같아요")) {
             assertEquals("b", SpokenCardAnswerParser.parse(heard, card)?.choiceId, heard)
