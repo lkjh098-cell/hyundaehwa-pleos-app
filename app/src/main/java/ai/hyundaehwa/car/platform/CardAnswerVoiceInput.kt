@@ -46,12 +46,12 @@ class CardAnswerVoiceInput(private val context: Context, private val blockReason
         if (expireIfNeeded(token)) { candidate.release(); return }
         recognizer = candidate
         timeout?.let(main::removeCallbacks)
-        timeout = Runnable { if (current(token, candidate)) preparationFailed(token, card, candidate, fallback, "음성 인식 서비스 응답이 없어요.") }.also { main.postDelayed(it, minOf(5_000L, responseDeadline?.remainingMs(SystemClock.elapsedRealtime()) ?: 5_000L)) }
+        timeout = Runnable { if (current(token, candidate)) preparationFailed(token, card, candidate, fallback, "음성 인식 서비스 응답이 없어요.") }.also { main.postDelayed(it, RecognitionStartupPolicy.timeoutMs(false, responseDeadline?.remainingMs(SystemClock.elapsedRealtime()))) }
         candidate.prepare({ main.post {
             if (!current(token, candidate)) return@post
             blockReason(card.id)?.let { cancel(it, true); return@post }
             timeout?.let(main::removeCallbacks)
-            timeout = Runnable { if (current(token, candidate)) preparationFailed(token, card, candidate, fallback, "마이크가 시작되지 않았어요. 한국어 기기 내 음성 인식을 확인해 주세요.") }.also { main.postDelayed(it, minOf(10_000L, responseDeadline?.remainingMs(SystemClock.elapsedRealtime()) ?: 10_000L)) }
+            timeout = Runnable { if (current(token, candidate)) preparationFailed(token, card, candidate, fallback, "마이크가 시작되지 않았어요. 한국어 기기 내 음성 인식을 확인해 주세요.") }.also { main.postDelayed(it, RecognitionStartupPolicy.timeoutMs(true, responseDeadline?.remainingMs(SystemClock.elapsedRealtime()))) }
             candidate.start(object : RecognitionEvents {
                 override fun started() { main.post {
                     if (!current(token, candidate)) return@post
@@ -62,6 +62,11 @@ class CardAnswerVoiceInput(private val context: Context, private val blockReason
                 override fun speechStarted() { main.post {
                     if (!current(token, candidate)) return@post
                     responseDeadline?.speechStarted(SystemClock.elapsedRealtime())
+                    scheduleResponseTimeout(token, candidate)
+                } }
+                override fun awaitingFinal() { main.post {
+                    if (!current(token, candidate)) return@post
+                    responseDeadline?.awaitingFinal(SystemClock.elapsedRealtime())
                     scheduleResponseTimeout(token, candidate)
                 } }
                 override fun text(text: String, final: Boolean) { main.post {

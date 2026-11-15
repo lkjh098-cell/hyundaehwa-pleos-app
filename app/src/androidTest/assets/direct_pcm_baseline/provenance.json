@@ -1,0 +1,29 @@
+{
+  "scope": "Unmodified V5 stimulus WAVs; direct PCM recognition diagnostic, not microphone acceptance",
+  "stimuli": [
+    {
+      "case": "number",
+      "source": "/private/tmp/hyundaehwa-mic-validation/buffered-releaseqa-v5/number/stimulus.wav",
+      "asset": "number.wav",
+      "wavSha256": "ff7d2b7597ca447b6f247f7d9c9309752049135edf6c8f7e44b41ba1a0d6fed5",
+      "speechPcmSha256": "98857f5246963df9f1021f6300efe9c80484aa0ae590c593b06db4b098ea349d",
+      "speechBytes": 16640
+    },
+    {
+      "case": "label",
+      "source": "/private/tmp/hyundaehwa-mic-validation/buffered-releaseqa-v5/label/stimulus.wav",
+      "asset": "label.wav",
+      "wavSha256": "87cb7e29b4fd4347e642a3b5da8d3bba8f10602118281f0955237d80d16b41e4",
+      "speechPcmSha256": "036cb2516f678730b82d64f32dea9fb22641d12ab7e273ac857bf4760ec0fbdc",
+      "speechBytes": 80130
+    },
+    {
+      "case": "short_label",
+      "source": "/private/tmp/hyundaehwa-mic-validation/buffered-releaseqa-v16/short_label_walnut/stimulus.wav",
+      "asset": "short_label.wav",
+      "wavSha256": "123d3e596c6e6c606ab171f8317629e1c3ec54ba94ddff6913df9d9b57abd1ad",
+      "expectedSpokenText": "호두",
+      "scope": "Unmodified failed V16 short-label waveform; diagnostic only"
+    }
+  ]
+}

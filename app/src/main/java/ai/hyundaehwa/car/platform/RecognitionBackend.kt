@@ -1,5 +1,6 @@
 package ai.hyundaehwa.car.platform
 
+import ai.hyundaehwa.core.CardAnswerVoiceDeadline
 import ai.hyundaehwa.core.RecognizedUtterance
 import ai.hyundaehwa.core.RecognitionSpeechRanges
 import android.content.Context
@@ -18,6 +19,7 @@ import java.util.Locale
 
 interface RecognitionEvents {
     fun speechStarted() = Unit
+    fun awaitingFinal() = Unit
     fun started()
     fun text(text: String, final: Boolean)
     fun ended()
@@ -41,9 +43,11 @@ class PleosRecognitionBackend(private val context: Context) : RecognitionBackend
     private val main = android.os.Handler(android.os.Looper.getMainLooper())
     private var completionFallback: Runnable? = null
     private var ended = false
+    private var endObserved = false
     private var started = false
+    @Volatile private var requestIssued = false
     private fun markStarted() {
-        if (!released && !ended && !started) { started = true; events?.started() }
+        if (requestIssued && !released && !ended && !started) { started = true; events?.started() }
     }
     private fun finishUtterance() {
         if (released || ended) return
@@ -53,30 +57,60 @@ class PleosRecognitionBackend(private val context: Context) : RecognitionBackend
         if (utterance.preview.isBlank()) events?.noSpeech()
         else { events?.text(utterance.finalText, true); events?.ended() }
     }
+    private fun waitForFinal() {
+        // Repeated partial/EPD callbacks cannot extend this bounded end-of-speech grace.
+        if (completionFallback != null) return
+        events?.awaitingFinal()
+        completionFallback = Runnable { finishUtterance() }.also {
+            main.postDelayed(it, CardAnswerVoiceDeadline.FINAL_GRACE_MS)
+        }
+    }
     private val listener = object : ResultListener {
-        override fun onReady() = Unit
-        override fun onStartedRecognition() { main.post { markStarted() } }
+        override fun onReady() {
+            // SDK 3.3.1 maps ReadyToStartRecognition here; EPD_ON calls
+            // onStartedRecognition only AFTER speech. Do not wait for speech to invite it.
+            // Snapshot at receipt: an initialization callback queued before request() is not
+            // readiness for this capture, even if the main queue delivers it after request().
+            val readyForRequest = requestIssued
+            main.post { if (readyForRequest) markStarted() }
+        }
+        override fun onStartedRecognition() { main.post {
+            if (requestIssued && !released && !ended) {
+                endObserved = false
+                completionFallback?.let(main::removeCallbacks); completionFallback = null
+                markStarted(); events?.speechStarted()
+            }
+        } }
         override fun onUpdated(stt: String, completed: Boolean) { main.post {
             if (!released && !ended) {
                 // A transcript proves capture began even when a service omits its started callback.
                 markStarted()
                 if (stt.isNotBlank()) events?.speechStarted()
-                completionFallback?.let(main::removeCallbacks); completionFallback = null
+                if (!endObserved) { completionFallback?.let(main::removeCallbacks); completionFallback = null }
                 events?.text(utterance.update(stt, completed), false)
                 // Some service versions omit the end callback. Only stable completed text gets a
                 // bounded silence fallback; a partial transcript can never become an answer.
-                if (completed && stt.isNotBlank()) completionFallback = Runnable { finishUtterance() }.also { main.postDelayed(it, 3_200) }
+                if (endObserved && completed) finishUtterance()
+                else if (endObserved) waitForFinal()
+                else if (completed && stt.isNotBlank()) completionFallback = Runnable { finishUtterance() }.also { main.postDelayed(it, 3_200) }
             }
         } }
         override fun onUpdatedEpdData(on: Long, off: Long) { main.post {
             if (!released && !ended && speechRanges.observed(on, off)) {
                 markStarted(); events?.speechStarted()
+                if (endObserved) return@post
                 completionFallback?.let(main::removeCallbacks); completionFallback = null
                 if (utterance.finalText.isNotBlank()) completionFallback = Runnable { finishUtterance() }.also { main.postDelayed(it, 3_200) }
             }
         } }
         override fun onUpdatedRms(rms: Double) = Unit
-        override fun onEndedRecognition() { main.post { finishUtterance() } }
+        override fun onEndedRecognition() { main.post {
+            if (released || ended || endObserved) return@post
+            // SDK EPD_OFF may precede UpdateSttCompleted. Keep the callback receiver alive
+            // until final text arrives, instead of discarding it as an empty recognition.
+            endObserved = true
+            if (utterance.finalText.isNotBlank()) finishUtterance() else waitForFinal()
+        } }
         override fun onError(errorType: ErrorType) { main.post { if (!released && !ended) {
             ended = true; completionFallback?.let(main::removeCallbacks); completionFallback = null
             events?.failed("기기 내 음성 인식 오류: ${errorType.name}")
@@ -94,7 +128,10 @@ class PleosRecognitionBackend(private val context: Context) : RecognitionBackend
     }
     override fun start(events: RecognitionEvents) {
         this.events = events
-        runCatching { checkNotNull(engine).request() }.onFailure { events.failed("음성 인식을 시작하지 못했어요.") }
+        requestIssued = true
+        runCatching { checkNotNull(engine).request() }.onFailure {
+            requestIssued = false; events.failed("음성 인식을 시작하지 못했어요.")
+        }
     }
     override fun release() {
         if (released) return

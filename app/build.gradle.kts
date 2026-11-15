@@ -17,8 +17,8 @@ android {
         applicationId = "ai.hyundaehwa.car"
         minSdk = 28
         targetSdk = 35
-        versionCode = 40
-        versionName = "0.6.0-rc11"
+        versionCode = 41
+        versionName = "0.6.0-rc12"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("boolean", "ENABLE_GEMINI_RELAY", "false")
         buildConfigField("String", "GLEO_RECIPIENT_PACKAGE", quoted(gleoRecipient.get()))
@@ -40,7 +40,10 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { buildConfig = true }
-    testBuildType = "debug"
+    // Select the isolated QA app explicitly; production release is never instrumented here.
+    testBuildType = providers.gradleProperty("targetTestBuildType").orElse("debug").get().also {
+        require(it in setOf("debug", "releaseQa")) { "targetTestBuildType must be debug or releaseQa" }
+    }
     androidResources { noCompress += listOf("ogg", "mp3") }
     buildTypes {
         debug {
@@ -60,6 +63,11 @@ android {
             applicationIdSuffix = ".releaseqa"
             versionNameSuffix = "-qa"
             matchingFallbacks += "release"
+            // Isolated acoustic instrumentation uses the release backend and signing, but
+            // leaves test-shared classes and private route fixtures intact. This is NOT
+            // a verification of the production APK's R8 optimizations or binary identity.
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }

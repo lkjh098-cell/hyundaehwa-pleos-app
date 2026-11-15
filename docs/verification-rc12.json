@@ -1,0 +1,120 @@
+{
+  "version": "0.6.0-rc12",
+  "versionCode": 41,
+  "package": "ai.hyundaehwa.car",
+  "status": "RELEASE_AUTHORIZED_WITH_KNOWN_SHORT_LABEL_ASR_LIMITATION",
+  "base_commit": "5158a3ff6859b5b032918580be977facc87bd953",
+  "apk_sha256": "1b2a87a5af789e7c6e8aa3e7e79a688f431b602415adf24f82946c8d69c30dc9",
+  "apk_bytes": 210982765,
+  "signing_certificate_sha256": "578e5484a2a02513aa0f10b5d1cf9caa052f46c9a2b3c5995dfe2a0a7e8aa27c",
+  "core_tests": {
+    "tests": 279,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "signed_release_build": "PASS",
+  "lint_release": "PASS",
+  "android_integration": {
+    "callback_tests_passed": 8,
+    "actual_cabin_to_pleos_handoff_passed": 1,
+    "scope": "Latest candidate; actual AudioRecord stop before real SDK readiness, followed by fresh recorder recovery; callbacks also tested synthetically"
+  },
+  "runtime": {
+    "production_cold_launch": "PASS: exact signed optimized APK installed and foreground resumed; COLD 1033ms; no AndroidRuntime/Linkage error observed",
+    "releaseQa_first_answer_v16": {
+      "passed": 5,
+      "total": 6,
+      "all_passed": false,
+      "cases": [
+        {
+          "case": "number_1",
+          "passed": true,
+          "spoken": "1번",
+          "transcript": "1번",
+          "source": "official Pleos ON_DEVICE via emulator microphone",
+          "capture_token": 2,
+          "no_speech_restarts": 0
+        },
+        {
+          "case": "number_2",
+          "passed": true,
+          "spoken": "2번",
+          "transcript": "2번",
+          "source": "official Pleos ON_DEVICE via emulator microphone",
+          "capture_token": 2,
+          "no_speech_restarts": 0
+        },
+        {
+          "case": "number_3",
+          "passed": true,
+          "spoken": "3번",
+          "transcript": "3번",
+          "source": "official Pleos ON_DEVICE via emulator microphone",
+          "capture_token": 2,
+          "no_speech_restarts": 0
+        },
+        {
+          "case": "original_label_b",
+          "passed": true,
+          "spoken": "학당을 졸업하고 교사로 부임해서",
+          "transcript": "학당을 졸업하고 교사로 부임해서",
+          "source": "official Pleos ON_DEVICE via emulator microphone",
+          "capture_token": 2,
+          "no_speech_restarts": 0
+        },
+        {
+          "case": "combined_b",
+          "passed": true,
+          "spoken": "3번 학당을 졸업하고 교사로 부임해서",
+          "transcript": "3번 학당을 졸업하고 교사로 부임해서",
+          "source": "official Pleos ON_DEVICE via emulator microphone",
+          "capture_token": 2,
+          "no_speech_restarts": 0
+        },
+        {
+          "case": "short_label_walnut",
+          "passed": false,
+          "spoken": "호두",
+          "transcript": "92",
+          "source": "official Pleos ON_DEVICE via emulator microphone",
+          "capture_token": 2,
+          "no_speech_restarts": 0
+        }
+      ],
+      "emulator_clean_exit": true,
+      "cold_first_question_continuity": "PASS after smallestScreenSize/screenLayout handling"
+    },
+    "direct_pcm_short_label_v17": {
+      "spoken": "호두",
+      "original_source": "V16 short_label_walnut/stimulus.wav unchanged",
+      "final_transcript": "후드",
+      "accuracy": "FAIL",
+      "scope": "Official sendAudio/completeAudioSend clean engine baseline; not microphone acceptance"
+    },
+    "emulator_transport": "Host GPU, QEMU_AUDIO_TIMER_PERIOD=64Hz, 48kHz buffered PCM resampled from original 16kHz. Continuous single stream until whole-VM shutdown. This mitigates observed timing/filler artifacts; does not patch the official emulator binary or prove bit-exact input.",
+    "physical_human_microphone": "NOT_VERIFIED",
+    "production_minified_first_answer": "NOT_VERIFIED; releaseQa has same release SDK branch/signing but shrinking disabled"
+  },
+  "negative_evidence_preserved": [
+    "V15 cold first question failed due to Activity recreation; fixed and V16 cold first number passed",
+    "V16 short label 호두 recognized as 92",
+    "V17 clean engine baseline 호두 recognized as 후드",
+    "Earlier V5-V14 experiment failures remain in local evidence; not reclassified as passes"
+  ],
+  "next_dependency": "Public ON_DEVICE SDK has no supported vocabulary/grammar/EPD/n-best controls. Official SERVER/HYBRID requires app registration and network and must be separately evaluated. No forced 92/후드-to-호두 mapping was added.",
+  "release_condition": "User explicitly authorized release with the documented remaining short-label ASR limitation. Failed tests remain failed; no successful recognition claim is made for them.",
+  "sdk_docs": [
+    "https://document.pleos.ai/en/docs/pleos-only/connect-sdk-pleos/SpeechToText/intro",
+    "https://document.pleos.ai/en/docs/pleos-only/connect-sdk-pleos/SpeechToText/result-listeners",
+    "https://document.pleos.ai/en/docs/pleos-only/connect-sdk-pleos/SpeechToText/sending-audio-data"
+  ],
+  "previous_release": "v0.6.0-rc11-first-answer-20261115",
+  "release_tag": "v0.6.0-rc12-microphone-handoff-20261115",
+  "release_authorization": {
+    "date": "2026-11-15",
+    "user_decision": "Keep on-device recognition and deploy the current version as-is after disclosure of the 5/6 result and short-label failure",
+    "server_recognition_enabled": false,
+    "all_runtime_tests_passed": false
+  }
+}

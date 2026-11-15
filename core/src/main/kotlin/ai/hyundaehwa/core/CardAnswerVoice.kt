@@ -25,7 +25,7 @@ object SpokenCardAnswerParser {
         }
         return phrases
     }
-    private data class ChoiceGrammar(val id: String, val answer: Regex)
+    private data class ChoiceGrammar(val id: String, val answer: Regex, val names: List<String>)
     // A card is repeatedly heard during one answer window. Bound the cache and compile once
     // per displayed order, instead of rebuilding hundreds of regexes for every transcript.
     private val grammars = object : LinkedHashMap<List<AdministrativeConversationOption>, List<ChoiceGrammar>>(32, .75f, true) {
@@ -45,8 +45,62 @@ object SpokenCardAnswerParser {
             } else emptyList()
             val numbers = ordinals.getOrNull(index).orEmpty() + directional
             val forms = (names + numbers + numbers.flatMap { n -> names.map { name -> n + name } } + names.flatMap { name -> numbers.map { n -> name + n } }).distinct()
-            ChoiceGrammar(option.id, Regex("^$prefix(?:${forms.joinToString("|") { Regex.escape(it) }})(?:$ending|(?:이)?라고생각(?:해|해요|합니다)|(?:이|가)?좋(?:아|아요)|(?:을|를)?고르겠습니다)$"))
+            ChoiceGrammar(option.id, Regex("^$prefix(?:${forms.joinToString("|") { Regex.escape(it) }})(?:$ending|(?:이)?라고생각(?:해|해요|합니다)|(?:이|가)?좋(?:아|아요)|(?:을|를)?고르겠습니다)$"), names)
         }
+    }
+    // Recovery uses preserved structure, never a similarity score or the correct-answer id.
+    // A noisy noun can accompany an explicit number; without a number, the exact final
+    // noun/predicate phrase and its preceding clause connector must both survive.
+    private fun recoveredChoice(raw: String, card: AdministrativeConversationTopic): String? {
+        val value = normalized(raw)
+        if (Regex("[?？]").containsMatchIn(raw) ||
+            Regex("아니|아닌|아닐|말고|말구|않|하지마|싫|안할|안해|라고|다고|라던|말했|들었|말하|말한|답한|또는|혹은|둘다|그리고|뭐|무슨|어느|어떤|왜|알려|친구|엄마|아빠|너는|너희|우리끼리|그사람|저사람").containsMatchIn(value) ||
+            Regex("^[가-힣]{1,8}(?:야|아)(?:\\s|[,，])").containsMatchIn(raw) ||
+            Regex("(?:까|나요|습니까)$").containsMatchIn(value)) return null
+        val current = grammar(card)
+        fun competing(id: String) = current.any { choice -> choice.id != id && choice.names.any { it in value } }
+        val ordinalTokens = ordinals.map { forms -> forms.filter { it.length > 1 } }
+        val ordinalPattern = ordinalTokens.flatten().sortedByDescending { it.length }
+            .joinToString("|") { token -> token.map { Regex.escape(it.toString()) }.joinToString("\\s*") }
+        val numbered = Regex("^\\s*(?:(?:정답은|답은|저는|나는|음|어)\\s*)*($ordinalPattern)\\s*(.+)$").matchEntire(raw)
+        if (numbered != null) {
+            val token = normalized(numbered.groupValues[1])
+            val index = ordinalTokens.indexOfFirst { token in it }
+            val choice = card.options.getOrNull(index) ?: return null
+            val tail = numbered.groupValues[2].trim()
+            if (Regex(ordinalPattern).containsMatchIn(tail) || competing(choice.id)) return null
+            // Keep this fallback to one noun-shaped token plus an answer ending. An
+            // unrelated sentence such as “3번 버스를 탔어요” is not a numbered answer.
+            val noun = tail.replace(Regex("(?:이요|이에요|예요|입니다|요)$"), "").trim()
+            if (card.options.count { noun.isNotEmpty() && noun in normalized(it.label) } > 1) return null
+            if (!Regex("[가-힣a-zA-Z0-9]+").matches(noun) ||
+                Regex("(?:다|어|아|해|했|갔|왔|탔|봤|있|없|겠)$").containsMatchIn(noun) ||
+                noun in functionalFragments)
+                return recoveredChoice(tail, card)?.takeIf { it == choice.id }
+            return choice.id
+        }
+        if (Regex(ordinalPattern).containsMatchIn(raw)) return null
+        // No free prefix/suffix substring matching: the undamaged ending must contain
+        // a concrete noun with a particle and a predicate, and follow the same connector.
+        val connectors = Regex("(?:하고|되고|이며|으며|면서|아서|어서|지만|는데|고)$")
+        val recovered = card.options.filter { option ->
+            if (competing(option.id)) return@filter false
+            val words = option.label.split(Regex("\\s+")).filter { it.isNotBlank() }
+            (1 until words.size - 1).any { start ->
+                val phraseWords = words.drop(start)
+                val phrase = normalized(phraseWords.joinToString(""))
+                val connector = connectors.find(words[start - 1])?.value ?: return@any false
+                val nounPresent = phraseWords.dropLast(1).any { word ->
+                    val stem = word.replace(Regex("(?:으로|에서|에게|을|를|로|에)$"), "")
+                    stem != word && stem.isNotEmpty() && normalized(stem) !in functionalFragments
+                }
+                if (!nounPresent || phraseWords.last() in functionalFragments ||
+                    current.any { it.id != option.id && it.names.any { name -> phrase in name } }) return@any false
+                val match = Regex("^(.+)${Regex.escape(phrase)}$ending$").matchEntire(value)
+                match != null && match.groupValues[1].endsWith(connector)
+            }
+        }
+        return recovered.singleOrNull()?.id
     }
     fun parse(text: String, card: AdministrativeConversationTopic): SpokenCardAnswer? {
         if (text.isBlank() || text.length > 120) return null
@@ -67,11 +121,14 @@ object SpokenCardAnswerParser {
         if ((card.format == "quiz" || card.format == "balance" && card.options.size == 2) && Regex("말고|아니고").containsMatchIn(value)) {
             val parts = value.split(Regex("말고|아니고"))
             if (parts.size != 2) return null
-            val before = parse(parts[0], card)?.choiceId ?: return null
-            val after = parse(parts[1], card)?.choiceId ?: return null
+            // Corrections require two strictly recognized choices; noisy recovery may
+            // not invent the rejected side of a correction.
+            val before = grammar(card).singleOrNull { it.answer.matches(parts[0]) }?.id ?: return null
+            val after = grammar(card).singleOrNull { it.answer.matches(parts[1]) }?.id ?: return null
             return if (before != after) SpokenCardAnswer(after) else null
         }
         if (Regex("아니|말고|않|하지마|라고|라던|말했|들었|말하|말한|답한").containsMatchIn(value)) return null
+        recoveredChoice(raw, card)?.let { return SpokenCardAnswer(it) }
         val disclosure = Regex("^(?:정답|답)(?:을)?(?:알려(?:줘|주세요)|보여(?:줘|주세요)|보기|보여)$").matches(value)
         val miss = disclosure || Regex("^(?:아|저는?|나는?|이번에는?|이번엔)?(?:잘)?(?:모르겠|몰라|정답(?:을)?알려|정답[은이]뭐).{0,8}$").matches(value)
         if (card.format == "quiz" && miss) return SpokenCardAnswer(null, true)
@@ -163,11 +220,14 @@ object CardAnswerVoiceSession {
 class CardAnswerVoiceDeadline(private val startedAt: Long) {
     companion object { const val NO_RESPONSE_MS = 8_000L; const val FINAL_GRACE_MS = 4_000L; const val HARD_MAX_MS = 30_000L }
     private var lastActivityAt: Long? = null
+    private var finalPendingAt: Long? = null
     val activitySeen: Boolean get() = lastActivityAt != null
     fun speechStarted(now: Long) { lastActivityAt = now.coerceAtLeast(startedAt) }
     fun partial(text: String, now: Long) { if (text.isNotBlank()) speechStarted(now) }
+    fun awaitingFinal(now: Long) { if (finalPendingAt == null) finalPendingAt = now.coerceAtLeast(startedAt) }
     fun deadlineAt(): Long = minOf(startedAt + HARD_MAX_MS,
-        maxOf(startedAt + NO_RESPONSE_MS, lastActivityAt?.plus(FINAL_GRACE_MS) ?: startedAt))
+        maxOf(startedAt + NO_RESPONSE_MS, lastActivityAt?.plus(FINAL_GRACE_MS) ?: startedAt,
+            finalPendingAt?.plus(FINAL_GRACE_MS) ?: startedAt))
     fun expiryEvent(token: Long, transcript: String): CardAnswerVoiceEvent = if (activitySeen && transcript.isBlank())
         CardAnswerVoiceEvent.Fail(token, "말씀하신 소리는 감지했지만 답을 인식하지 못했어요. 다시 말하거나 화면에서 골라 주세요.")
         else CardAnswerVoiceEvent.Timeout(token)

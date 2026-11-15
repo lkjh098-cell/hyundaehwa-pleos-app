@@ -46,4 +46,24 @@ class CardAnswerVoiceDeadlineTest {
         old.partial("늦은 결과", 25000)
         assertFalse(next.activitySeen); assertEquals(28000L, next.deadlineAt())
     }
+    @Test fun epdEndNearNoResponseLimitAllowsFinalWithoutPretendingSpeechWasDetected() {
+        val deadline = CardAnswerVoiceDeadline(0)
+        deadline.awaitingFinal(7_900)
+        assertEquals(11_900L, deadline.deadlineAt())
+        assertFalse(deadline.activitySeen)
+        assertTrue(deadline.expiryEvent(1, "") is CardAnswerVoiceEvent.Timeout)
+        // Duplicate pending notices cannot extend an empty recognizer forever.
+        deadline.awaitingFinal(11_000)
+        assertEquals(11_900L, deadline.deadlineAt())
+        deadline.partial("1번", 8_050)
+        assertTrue(deadline.activitySeen)
+        assertTrue(deadline.remainingMs(8_050) > 0)
+    }
+    @Test fun pendingFinalNeverExceedsTheOriginalHardMaximum() {
+        val deadline = CardAnswerVoiceDeadline(0)
+        deadline.awaitingFinal(29_900)
+        assertEquals(30_000L, deadline.deadlineAt())
+        assertEquals(0L, deadline.remainingMs(30_000))
+    }
+
 }
