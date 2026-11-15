@@ -83,12 +83,16 @@ class CardAnswerVoiceInput(private val context: Context, private val blockReason
                     // Android terminates the recognizer after NO_MATCH/TIMEOUT. Do not leave a
                     // dead microphone labelled as listening for the rest of the answer window.
                     val deadline = responseDeadline
-                    if (deadline != null && RecognitionRetryPolicy.canRestart(noSpeechRestarts, deadline.remainingMs(SystemClock.elapsedRealtime()))) {
+                    if (deadline == null) {
+                        preparationFailed(token, card, candidate, fallback, "마이크가 시작되기 전에 음성 인식이 끝났어요.")
+                        return@post
+                    }
+                    if (RecognitionRetryPolicy.canRestart(noSpeechRestarts, deadline.remainingMs(SystemClock.elapsedRealtime()))) {
                         noSpeechRestarts++
                         update(CardAnswerVoiceEvent.Reconnecting(token))
                         candidate.release(); recognizer = null
                         prepare(token, card, if (fallback) AndroidOfflineRecognitionBackend(context) else PleosRecognitionBackend(context), fallback)
-                    } else if (deadline != null && deadline.remainingMs(SystemClock.elapsedRealtime()) == 0L) {
+                    } else if (deadline.remainingMs(SystemClock.elapsedRealtime()) == 0L) {
                         val event = deadline.expiryEvent(token, state.transcript); release(); update(event)
                     } else fail(token, "말씀을 인식하지 못했어요. 마이크를 눌러 다시 답해 주세요.")
                 } }

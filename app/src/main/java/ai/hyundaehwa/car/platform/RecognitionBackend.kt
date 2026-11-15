@@ -48,7 +48,10 @@ class PleosRecognitionBackend(private val context: Context) : RecognitionBackend
     private fun finishUtterance() {
         if (released || ended) return
         ended = true; completionFallback?.let(main::removeCallbacks); completionFallback = null
-        events?.text(utterance.finalText, true); events?.ended()
+        // An empty early end is a terminated microphone, not a submitted answer.
+        // Keep unfinished speech unmatched; never promote a partial to a final answer.
+        if (utterance.preview.isBlank()) events?.noSpeech()
+        else { events?.text(utterance.finalText, true); events?.ended() }
     }
     private val listener = object : ResultListener {
         override fun onReady() = Unit

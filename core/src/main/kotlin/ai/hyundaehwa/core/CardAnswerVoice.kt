@@ -114,6 +114,8 @@ data class CardAnswerVoiceState(val token: Long = 0, val cardId: String = "", va
     val transcript: String = "", val source: String = "", val answer: SpokenCardAnswer? = null,
     val error: String? = null, val retryWhenSafe: Boolean = false) {
     val active: Boolean get() = phase in setOf(CardAnswerVoicePhase.PREPARING, CardAnswerVoicePhase.LISTENING)
+    val captureStatusTitle: String get() = if (phase == CardAnswerVoicePhase.LISTENING) "답변을 듣고 있어요" else "답변 마이크 연결 중이에요"
+    val captureStatusDetail: String get() = if (phase == CardAnswerVoicePhase.LISTENING) "보기의 번호나 이름으로 말해 주세요." else "마이크가 준비되면 답변을 들어요."
 }
 sealed interface CardAnswerVoiceEvent {
     data class Begin(val token: Long, val cardId: String) : CardAnswerVoiceEvent
@@ -170,4 +172,19 @@ class CardAnswerVoiceDeadline(private val startedAt: Long) {
         CardAnswerVoiceEvent.Fail(token, "말씀하신 소리는 감지했지만 답을 인식하지 못했어요. 다시 말하거나 화면에서 골라 주세요.")
         else CardAnswerVoiceEvent.Timeout(token)
     fun remainingMs(now: Long): Long = (deadlineAt() - now).coerceAtLeast(0)
+}
+
+/** A freshly completed question owns a fresh automatic attempt, even after an early failure.
+ * Completion identity comes from the utterance that actually finished, never the current output. */
+class CardAnswerVoiceAutoStart {
+    var attemptedCardId: String? = null
+    var questionReady = false
+    fun questionCompleted(questionCardId: String?, visibleCardId: String?, answerVisible: Boolean,
+        input: CardAnswerVoiceState): Boolean {
+        if (questionCardId == null || questionCardId != visibleCardId || answerVisible) return false
+        questionReady = true
+        // A duplicate completion must never make a running answer eligible for another start.
+        if (!input.active) attemptedCardId = null
+        return true
+    }
 }

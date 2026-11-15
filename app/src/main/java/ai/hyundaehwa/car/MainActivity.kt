@@ -94,9 +94,8 @@ class MainActivity : Activity() {
     private var cabinMonitor: CabinSoundMonitor? = null
     private var answerVoiceOptIn = false
     private var answerVoicePermissionPending = false
-    private var answerVoiceAttemptedCardId: String? = null
+    private val answerVoiceStart = CardAnswerVoiceAutoStart()
     private var answerVoiceTargetDestination = ""
-    private var answerVoiceQuestionReady = false
     private var answerVisible = false
     private val answerSpeech = AnswerSpeechQueue()
     private val regionEntry = RegionEntryQueue()
@@ -126,7 +125,7 @@ class MainActivity : Activity() {
         try {
             pinnedCard = item; pinnedRegionId = region; pinnedShownAt = SystemClock.elapsedRealtime(); revealedAt = 0L
             resetAnswerSelection(item.id); unansweredReveal = false
-            answerVoiceAttemptedCardId = null; answerVoiceQuestionReady = !voiceEnabled
+            answerVoiceStart.attemptedCardId = null; answerVoiceStart.questionReady = !voiceEnabled
             conversationScrollY = 0; answerScrollPending = false
             discardAnswerSpeech(reset = true)
             clearPromptResume()
@@ -162,7 +161,7 @@ class MainActivity : Activity() {
             if (revealedAt > 0) revealedAt += elapsed
             return
         }
-        if (answerVoiceQuestionReady && PinnedQuizTiming.shouldReveal(now, pinnedShownAt, answerVisible)) { revealPinned(timedOut = true); render(force = true) }
+        if (answerVoiceStart.questionReady && PinnedQuizTiming.shouldReveal(now, pinnedShownAt, answerVisible)) { revealPinned(timedOut = true); render(force = true) }
         val nextEligible = state.enabled && ((state.gear == Gear.D && state.speedKph > 0) || state.arrived) &&
             !(state.restDue && state.restAnnounced) && !state.speechActive && HyundaehwaEngine.view(state).canSpeak &&
             ((state.regionId !in state.presentedRegionIds && state.regionalTopicsRegionId == state.regionId &&
@@ -317,6 +316,7 @@ class MainActivity : Activity() {
                 if (!next.active && next.phase != VoicePhase.IDLE) {
                     val completed = activeSpeechId
                     val completedKind = localPrompt?.kind
+                    val completedQuestionCardId = localPrompt?.takeIf { it.kind == "topic" }?.topicId
                     if (next.phase == VoicePhase.FAILED && completed != null) promptResume.holdAfterFailure(completed)
                     activeSpeechId = null; localPrompt = null
                     if (completed != null && regionEntry.active?.speechId == completed) {
@@ -349,8 +349,9 @@ class MainActivity : Activity() {
                             else -> Unit
                         }
                     }
-                    if (pinnedCard != null && next.phase == VoicePhase.COMPLETED && state.output?.topicId == pinnedCard?.id && !answerVisible) {
-                        pinnedShownAt = SystemClock.elapsedRealtime(); answerVoiceQuestionReady = true
+                    if (next.phase == VoicePhase.COMPLETED && answerVoiceStart.questionCompleted(
+                            completedQuestionCardId, pinnedCard?.id, answerVisible, answerVoiceState)) {
+                        pinnedShownAt = SystemClock.elapsedRealtime()
                     }
                     if (next.phase == VoicePhase.COMPLETED && completedKind == "rest") {
                         restVoiceStage = "choose"; restVoiceReady = true; restVoiceAttempted = false
@@ -454,7 +455,7 @@ class MainActivity : Activity() {
                 activeSpeechId = null
                 state = HyundaehwaEngine.reduce(state, ConversationEvent.ExternalTopicPresented(it.area.id, it.topic.id))
                 pinCard(it.topic, it.area.id)
-                answerVoiceQuestionReady = false // Gleo final-speech completion is vehicle-owned, not inferred here.
+                answerVoiceStart.questionReady = false // Gleo final-speech completion is vehicle-owned, not inferred here.
                 gleoStructuredCard = it.topic
                 gleoLastTopic = result.topic.orEmpty()
                 gleoLastTopicFormat = when (it.topic.contentRotationKey) { "destination" -> "목적지 이야기"; "balance" -> "밸런스게임"; "quiz" -> "위치 기반 퀴즈"; else -> "이곳의 이야기" }
@@ -737,7 +738,7 @@ class MainActivity : Activity() {
         } else if (matches && next.phase == CardAnswerVoicePhase.EMPTY_TIMEOUT) revealPinned(timedOut = true)
         else if (matches && next.phase in setOf(CardAnswerVoicePhase.FAILED, CardAnswerVoicePhase.UNMATCHED, CardAnswerVoicePhase.CANCELLED)) {
             pinnedShownAt = SystemClock.elapsedRealtime()
-            if (next.retryWhenSafe && answerVoiceOptIn) answerVoiceAttemptedCardId = null
+            if (next.retryWhenSafe && answerVoiceOptIn) answerVoiceStart.attemptedCardId = null
         }
         render(force = true)
     }
@@ -749,23 +750,24 @@ class MainActivity : Activity() {
         if (interruptPrompt && voiceState.active && voiceState.purpose == VoicePurpose.PROMPT &&
             localPrompt?.topicId == card.id && !answerVisible) {
             CardAnswerVoicePolicy.blockReason(answerVoiceConditions(card.id).copy(promptVoiceActive = false))?.let { toast(it); return false }
-            answerVoiceAttemptedCardId = card.id // suppress auto-listen during the stop callback
+            answerVoiceStart.attemptedCardId = card.id // suppress auto-listen during the stop callback
             clearPromptResume()
             speech?.stop("답변을 듣기 위해 질문을 멈췄어요.")
-            answerVoiceQuestionReady = true
+            answerVoiceStart.questionReady = true
             handler.postDelayed({ if (pinnedCard?.id == card.id && !answerVisible) startAnswerVoice(card) }, 700)
             return true
         }
         answerVoiceBlockReason(card.id)?.let { if (interruptPrompt) toast(it); return false }
-        answerVoiceAttemptedCardId = card.id; answerVoiceTargetDestination = state.destination
+        answerVoiceStart.attemptedCardId = card.id; answerVoiceTargetDestination = state.destination
+        // Reserve the turn during startup; only the capture callback may label it listening.
         state = HyundaehwaEngine.reduce(state, ConversationEvent.AnswerListeningChanged(true))
         answerVoice?.listen(card)
         return true
     }
     private fun maybeStartAnswerVoice() {
         val card = pinnedCard ?: return
-        if (!answerVoiceOptIn || !answerVoiceQuestionReady || answerVisible || answerVoiceState.active ||
-            answerVoiceAttemptedCardId == card.id || !resumed) return
+        if (!answerVoiceOptIn || !answerVoiceStart.questionReady || answerVisible || answerVoiceState.active ||
+            answerVoiceStart.attemptedCardId == card.id || !resumed) return
         if (answerVoiceBlockReason(card.id) == null) startAnswerVoice(card)
     }
     private fun syncCabinMonitor() {
@@ -788,7 +790,7 @@ class MainActivity : Activity() {
             .setMessage("마이크로 소리 크기를 확인해 조용한 시간이 이어지면 화두를 건네고, 질문 뒤에는 기기 내 음성 인식으로 답변을 들어요. 소리 크기 측정은 앱을 사용하는 동안에만 작동하며 음성 파일을 저장하지 않아요. 기기 내 음성 인식이 제공되지 않거나 소리 입력을 확인할 수 없으면 자동 기능을 보류해요. 설정에서 언제든 끌 수 있어요.")
             .setPositiveButton("음성 답변 사용") { _, _ ->
                 if (emulatorMode || canConfigure()) {
-                    answerVoiceOptIn = true; cabinSoundOptIn = true; answerVoiceAttemptedCardId = null
+                    answerVoiceOptIn = true; cabinSoundOptIn = true; answerVoiceStart.attemptedCardId = null
                     if (!emulatorMode) getSharedPreferences("conversation_profile", MODE_PRIVATE).edit().putBoolean("on_device_card_answers", true).putBoolean("cabin_sound_monitor", true).apply()
                     if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                         answerVoicePermissionPending = true; requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 14)
@@ -1107,7 +1109,8 @@ class MainActivity : Activity() {
             state.mediaActive == null -> "미디어 상태 확인 중 · 화두 대기"
             state.mediaActive == true -> "음악·라디오 재생 중 · 화두 대기"
             state.restDue && state.restAnnounced -> "휴식 장소 선택을 기다리고 있어요"
-            answerVoiceState.active || state.answerListening -> "답변을 듣고 있어요"
+            answerVoiceState.active -> answerVoiceState.captureStatusTitle
+            state.answerListening -> "답변 마이크 연결 중이에요"
             voiceState.active || state.speechActive -> "이야기를 들려드리고 있어요"
             (state.topic != null || pinnedCard != null) && !answerVisible -> "답변을 기다리고 있어요"
             answerVisible -> "답변을 확인했어요"
@@ -1135,8 +1138,8 @@ class MainActivity : Activity() {
         }
         val view = HyundaehwaEngine.view(state)
         val awaitingGuidance = !emulatorMode && state.enabled && view.status == "focus" && currentSnapshot.nearManeuver == null
-        val title = if (awaitingGuidance) "경로 안내 확인 중" else view.statusTitle
-        val detail = if (awaitingGuidance) "다음 안내 구간을 확인한 뒤 화두를 건네요." else view.statusDetail
+        val title = if (awaitingGuidance) "경로 안내 확인 중" else if (view.status == "answer-listening") answerVoiceState.captureStatusTitle else view.statusTitle
+        val detail = if (awaitingGuidance) "다음 안내 구간을 확인한 뒤 화두를 건네요." else if (view.status == "answer-listening") answerVoiceState.captureStatusDetail else view.statusDetail
         val destinationLabel = if (emulatorMode) state.destination else currentSnapshot.destination?.takeIf { it.isNotBlank() } ?: "목적지 없음"
         val areaLabel = if (catalogLoadState == CatalogLoadState.LOADING) "지역 콘텐츠 준비 중"
             else if (catalogLoadState == CatalogLoadState.FAILED) "지역 콘텐츠 불러오기 실패"
@@ -1520,7 +1523,7 @@ class MainActivity : Activity() {
         if (card == null) { toast("현재 음성으로 답할 질문이 없어요. 차량 음성 버튼으로 화두를 요청해 주세요."); return }
         if (!answerVoiceOptIn) configureAnswerVoice()
         else if (answerVoiceState.active) answerVoice?.cancel("음성 답변을 멈췄어요. 화면에서도 고를 수 있어요.")
-        else { answerVoiceAttemptedCardId = null; startAnswerVoice(card, interruptPrompt = true) }
+        else { answerVoiceStart.attemptedCardId = null; startAnswerVoice(card, interruptPrompt = true) }
     }
     private fun showDestinationDialog(destination: String) {
         AlertDialog.Builder(this).setTitle("목적지")
@@ -1608,7 +1611,7 @@ class MainActivity : Activity() {
             card.addView(button(if (input?.active == true) "음성 답변 중지" else if (answerVoiceOptIn) "말로 답하기 · 다시 듣기" else "기기 내 음성 답변 켜기", selectedFill, teal) {
                 if (!answerVoiceOptIn) configureAnswerVoice()
                 else if (input?.active == true) answerVoice?.cancel("음성 답변을 멈췄어요. 화면에서도 고를 수 있어요.")
-                else { answerVoiceAttemptedCardId = null; startAnswerVoice(item, interruptPrompt = true) }
+                else { answerVoiceStart.attemptedCardId = null; startAnswerVoice(item, interruptPrompt = true) }
             })
         }
         if (item.format == "quiz" && selectedChoiceId == null && !answerVisible) {
@@ -1668,6 +1671,7 @@ class MainActivity : Activity() {
         val card = when (restVoiceStage) { "choose" -> realRestCard(); "confirm" -> restConfirmationCard(); else -> null } ?: return
         if (answerVoiceBlockReason(card.id) != null) return
         restVoiceAttempted = true
+        // Reserve the turn during startup; only the capture callback may label it listening.
         state = HyundaehwaEngine.reduce(state, ConversationEvent.AnswerListeningChanged(true))
         answerVoice?.listen(card)
     }
@@ -1945,7 +1949,7 @@ class MainActivity : Activity() {
                 answerVoiceOptIn = false; cabinSoundOptIn = false; syncCabinMonitor()
                 if (!emulatorMode) getSharedPreferences("conversation_profile", MODE_PRIVATE).edit().putBoolean("on_device_card_answers", false).putBoolean("cabin_sound_monitor", false).apply()
                 toast("마이크 권한이 없어 화면으로 답변해 주세요.")
-            } else { answerVoiceAttemptedCardId = null; syncCabinMonitor(); handler.post { maybeStartAnswerVoice() } }
+            } else { answerVoiceStart.attemptedCardId = null; syncCabinMonitor(); handler.post { maybeStartAnswerVoice() } }
             render(force = true)
         }
         if (requestCode == 13) {

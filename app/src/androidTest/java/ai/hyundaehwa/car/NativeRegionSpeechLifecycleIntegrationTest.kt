@@ -99,6 +99,11 @@ class NativeRegionSpeechLifecycleIntegrationTest {
                 assertEquals("Only one rotation slot is consumed", 3, state().rotationRemaining.size)
                 assertTrue("The original region is marked presented after mount", state().presentedRegionIds.contains(areaA))
                 assertEquals("Question stays associated with entry A", areaA, question.regionId)
+                // Simulate an early failed attempt while this exact question is still speaking.
+                // Its real completion after safety resume must re-arm the first answer window.
+                val automaticAnswer = field("answerVoiceStart").get(activity) as CardAnswerVoiceAutoStart
+                automaticAnswer.attemptedCardId = question.id
+                assertFalse(automaticAnswer.questionReady)
                 dispatch(ConversationEvent.FocusChanged(FocusKind.JUNCTION, true))
             }
             var remaining = ""
@@ -117,8 +122,17 @@ class NativeRegionSpeechLifecycleIntegrationTest {
                 voice().requestId == topicId && voice().phase == VoicePhase.PLAYING &&
                     (field("localPrompt").get(activity) as? Utterance)?.text == remaining
             }
+            await("completed resumed question clears its stale first-answer attempt") {
+                val automaticAnswer = field("answerVoiceStart").get(activity) as CardAnswerVoiceAutoStart
+                voice().requestId == topicId && voice().phase == VoicePhase.COMPLETED &&
+                    automaticAnswer.questionReady && automaticAnswer.attemptedCardId == null
+            }
+            instrumentation.runOnMainSync {
+                assertFalse("This test must not open the microphone", field("answerVoiceOptIn").getBoolean(activity))
+                assertEquals("Real completed question remains displayed", areaA, state().topic?.regionId)
+            }
             instrumentation.sendStatus(0, Bundle().apply {
-                putString("region_safety_observation", "SIMULATED route A=$areaA to B=$areaB; actual local TTS callbacks; entry=$entryId; pinned question=$topicId; safety checkpoint resumed. Physical audibility, actual GPS and vehicle safety not verified.")
+                putString("region_safety_observation", "SIMULATED route A=$areaA to B=$areaB; actual local TTS callbacks; entry=$entryId; pinned question=$topicId; safety checkpoint resumed and completed; stale first-answer attempt cleared. Physical audibility, actual GPS and vehicle safety not verified.")
             })
         } catch (t: Throwable) { failure = t; throw t }
         finally {

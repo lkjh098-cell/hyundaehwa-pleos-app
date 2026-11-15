@@ -1,0 +1,28 @@
+{
+  "version": "0.6.0-rc11",
+  "versionCode": 40,
+  "package": "ai.hyundaehwa.car",
+  "webBehaviorReference": "quiz-first-answer-v60-20261115",
+  "tests": {
+    "tests": 265,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "releaseBuild": "passed",
+  "releaseQaBuild": "passed",
+  "lint": {
+    "errors": 0,
+    "warnings": 3
+  },
+  "apk": {
+    "name": "hyundaehwa-pleos-rc11-first-answer.apk",
+    "bytes": 210982765,
+    "sha256": "fa765b5eb36dad4704852a11b2c6db9b4698b6a9d0d668d0f38a3ea916bf22f4",
+    "certificateSha256": "578e5484a2a02513aa0f10b5d1cf9caa052f46c9a2b3c5995dfe2a0a7e8aa27c"
+  },
+  "instrumentationExecuted": false,
+  "physicalMicrophoneVerified": false,
+  "runtimeBlocker": "Official emulator system image and executable are iCloud dataless placeholders; no boot or physical voice result claimed.",
+  "instrumentationBuild": "passed"
+}
