@@ -8,18 +8,45 @@ object SpokenCardAnswerParser {
     private const val prefix = "(?:(?:저는|나는|난|나|제가|제생각에는|아|음|어|정답은|답은|그건|이건))*"
     private const val ending = "(?:(?:이|가|은|는)?정답(?:이야|이에요|입니다|인것같아|인것같아요)|(?:인|일)?것같(?:아|아요)|같(?:아|아요|은데|은데요)|(?:으로|로|에)?(?:할게|할게요|갈게|갈게요|가요|가겠습니다|선택|선택할게|선택할게요|고를게|고를게요)|(?:이요|요|이에요|예요|이야|야|입니다))?"
     private val genericFragments = setOf("그곳", "이곳", "다른", "같은", "있는", "없는", "하는", "위한", "받은", "함께", "각자", "먼저", "그대로", "모두", "사람", "장소", "지역", "방식", "이용", "통해", "때문에", "자체", "직접", "제작한", "만든", "여러", "저곳", "우리", "현재", "다음", "모든", "작은", "큰", "새로운", "만들어", "있어요", "없어요", "보기", "하기", "가요", "해요")
-    private fun shortLabels(option: AdministrativeConversationOption, card: AdministrativeConversationTopic): List<String> {
-        val words = option.label.split(Regex("[^가-힣a-zA-Z0-9]+" )).filter { it.isNotBlank() }
+    private val functionalFragments = genericFragments + setOf("이", "그", "저", "내", "제", "것", "거", "수", "등", "더", "좀", "한", "두", "세", "네", "다", "안", "못", "덜", "만", "및", "또", "꽉", "잘", "을", "를", "은", "는", "의", "와", "과", "에", "로", "가", "하", "않고", "않는", "않는다", "않았다", "같아", "선택") + ordinals.flatten()
+    private fun labelFragments(label: String): Set<String> {
+        val words = label.split(Regex("[^가-힣a-zA-Z0-9]+" )).filter { it.isNotBlank() }
         val phrases = mutableSetOf<String>()
         for (start in words.indices) for (end in start + 1..words.size) {
-            val phrase = normalized(words.subList(start, end).joinToString(""))
-            if (phrase.length >= 2 && phrase !in genericFragments &&
-                words.subList(start, end).any { normalized(it).length >= 2 && normalized(it) !in genericFragments } &&
-                card.options.filter { it.id != option.id }.none { other ->
-                    (listOf(other.label) + other.keywords).any { phrase in normalized(it) }
-                }) phrases += phrase
+            val selected = words.subList(start, end)
+            val phrase = normalized(selected.joinToString(""))
+            if (phrase.isNotEmpty() && !phrase.all { it.isDigit() } && phrase !in functionalFragments &&
+                selected.any { normalized(it) !in functionalFragments }) phrases += phrase
         }
-        return phrases.toList()
+        // Derive spoken nouns from complete whitespace tokens, never arbitrary substrings.
+        for (word in words) {
+            val stem = word.replace(Regex("(?:으로|에서|에게|까지|부터|을|를|로|에|와|과)$"), "")
+            if (stem != word && stem.isNotEmpty() && !stem.all { it.isDigit() } && stem !in functionalFragments) phrases += normalized(stem)
+        }
+        return phrases
+    }
+    private data class ChoiceGrammar(val id: String, val answer: Regex)
+    // A card is repeatedly heard during one answer window. Bound the cache and compile once
+    // per displayed order, instead of rebuilding hundreds of regexes for every transcript.
+    private val grammars = object : LinkedHashMap<List<AdministrativeConversationOption>, List<ChoiceGrammar>>(32, .75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<List<AdministrativeConversationOption>, List<ChoiceGrammar>>) = size > 32
+    }
+    @Synchronized private fun grammar(card: AdministrativeConversationTopic): List<ChoiceGrammar> = grammars.getOrPut(card.options) {
+        val fragments = card.options.map { labelFragments(it.label) + it.keywords.map(::normalized).filter { name -> name.isNotEmpty() && !name.all { it.isDigit() } && name !in functionalFragments } }
+        card.options.mapIndexed { index, option ->
+            val names = (listOf(normalized(option.label)) + fragments[index].filter { candidate ->
+                card.options.indices.filter { it != index }.none { other ->
+                    fragments[other].any { candidate in it } || candidate in normalized(card.options[other].label)
+                }
+            }).filter { it.isNotBlank() }.distinct()
+            val directional = if (card.options.size == 2) when (index) {
+                0 -> listOf("앞에거", "앞에꺼", "앞의거", "앞에것", "앞의것", "앞거", "앞에있는거", "앞쪽", "전자", "첫번째거", "첫번째것")
+                else -> listOf("뒤에거", "뒤에꺼", "뒤의거", "뒤에것", "뒤의것", "뒤거", "뒤에있는거", "뒤쪽", "후자", "두번째거", "두번째것")
+            } else emptyList()
+            val numbers = ordinals.getOrNull(index).orEmpty() + directional
+            val forms = (names + numbers + numbers.flatMap { n -> names.map { name -> n + name } } + names.flatMap { name -> numbers.map { n -> name + n } }).distinct()
+            ChoiceGrammar(option.id, Regex("^$prefix(?:${forms.joinToString("|") { Regex.escape(it) }})(?:$ending|(?:이)?라고생각(?:해|해요|합니다)|(?:이|가)?좋(?:아|아요)|(?:을|를)?고르겠습니다)$"))
+        }
     }
     fun parse(text: String, card: AdministrativeConversationTopic): SpokenCardAnswer? {
         if (text.isBlank() || text.length > 120) return null
@@ -30,16 +57,11 @@ object SpokenCardAnswerParser {
         // Entire unique visible labels win before control-like words, negation fragments or numeric aliases.
         val exact = card.options.filter { normalized(it.label) == value }
         if (exact.size == 1) return SpokenCardAnswer(exact.single().id)
-        // Match an entire displayed option with a natural spoken answer ending before
-        // rejecting report/negation fragments that may occur inside the actual label.
-        val spokenLabels = card.options.filter { option ->
-            val label = normalized(option.label)
-            label.isNotBlank() && Regex("^$prefix${Regex.escape(label)}(?:$ending|(?:이)?라고생각(?:해|해요|합니다)|(?:이|가)?좋(?:아|아요)|(?:을|를)?고르겠습니다)$").matches(value)
-        }
-        if (spokenLabels.size == 1) return SpokenCardAnswer(spokenLabels.single().id)
-        // A complete, unique keyword may be short (for example a spoken confirmation “예”).
-        val exactKeywords = card.options.filter { option -> option.keywords.any { normalized(it) == value } }
-        if (exactKeywords.size == 1) return SpokenCardAnswer(exactKeywords.single().id)
+        // Entire anchored answer forms protect real option text containing words such as
+        // “않는다”, while a contradiction or a report appended to that text cannot match.
+        val hits = grammar(card).filter { it.answer.matches(value) }
+        if (hits.size == 1) return SpokenCardAnswer(hits.single().id)
+        if (hits.size > 1) return null
         // Accept one explicit correction only when both sides name different actual choices.
         // A negation without a new positive choice remains unresolved.
         if ((card.format == "quiz" || card.format == "balance" && card.options.size == 2) && Regex("말고|아니고").containsMatchIn(value)) {
@@ -53,17 +75,9 @@ object SpokenCardAnswerParser {
         val disclosure = Regex("^(?:정답|답)(?:을)?(?:알려(?:줘|주세요)|보여(?:줘|주세요)|보기|보여)$").matches(value)
         val miss = disclosure || Regex("^(?:아|저는?|나는?|이번에는?|이번엔)?(?:잘)?(?:모르겠|몰라|정답(?:을)?알려|정답[은이]뭐).{0,8}$").matches(value)
         if (card.format == "quiz" && miss) return SpokenCardAnswer(null, true)
-        val hits = card.options.filterIndexed { index, option ->
-            val names = (listOf(option.label) + option.keywords + shortLabels(option, card)).map(::normalized).filter { it.length >= 2 }.distinct()
-            val directional = if (card.options.size == 2) when (index) {
-                0 -> listOf("앞에거", "앞에꺼", "앞의거", "앞에것", "앞의것", "앞거", "앞에있는거", "앞쪽", "전자", "첫번째거", "첫번째것")
-                else -> listOf("뒤에거", "뒤에꺼", "뒤의거", "뒤에것", "뒤의것", "뒤거", "뒤에있는거", "뒤쪽", "후자", "두번째거", "두번째것")
-            } else emptyList()
-            val numbers = ordinals.getOrNull(index).orEmpty() + directional
-            val forms = names + numbers + numbers.flatMap { n -> names.map { name -> n + name } } + names.flatMap { name -> numbers.map { n -> name + n } }
-            forms.any { Regex("^$prefix${Regex.escape(it)}$ending$").matches(value) }
-        }
-        if (hits.size == 1) return SpokenCardAnswer(hits.single().id)
+        // A declared but conflicting number must never turn into an out-of-list reveal.
+        if (Regex("(?:[1-4]|일|이|삼|사)번|첫번째|두번째|세번째|네번째|첫째|둘째|셋째|넷째").containsMatchIn(value) ||
+            Regex("^$prefix[1-4]").containsMatchIn(value)) return null
         // Only an explicit answer declaration may disclose an out-of-list guess.
         // Ordinary chatter, multiple candidates and passenger-addressed speech remain unresolved.
         val guess = Regex("^(?:정답은|답은)([가-힣a-z0-9]{2,30}?)(?:인것같아|인것같아요|같아|같아요|같은데|같은데요|이야|이에요|예요|입니다)$").matchEntire(value)?.groupValues?.get(1)

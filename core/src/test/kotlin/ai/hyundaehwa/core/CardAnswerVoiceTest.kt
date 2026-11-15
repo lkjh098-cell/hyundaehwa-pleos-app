@@ -36,12 +36,33 @@ class CardAnswerVoiceTest {
             AdministrativeConversationOption("a", "시장이 자체 제작한 엽전")))
         for (heard in listOf("엽전", "엽전이요", "3번 엽전", "삼 번 엽전이요", "세 번째 엽전", "엽전 3번", "정답은 3번 엽전입니다"))
             assertEquals("a", SpokenCardAnswerParser.parse(heard, shuffled)?.choiceId, heard)
-        for (heard in listOf("1번 엽전", "2번 엽전", "3번 카드", "자체", "제작한", "3번 자체", "자체 제작한", "엽전 아니야", "엽전이라고 들었어", "포인트 카드 또는 엽전"))
+        for (heard in listOf("1번 엽전", "2번 엽전", "정답은 1번 엽전입니다", "정답은 엽전 2번입니다", "정답은 2 엽전입니다", "3번 카드", "자체", "제작한", "3번 자체", "자체 제작한", "엽전 아니야", "엽전이라고 들었어", "포인트 카드 또는 엽전"))
             assertNull(SpokenCardAnswerParser.parse(heard, shuffled), heard)
         val shared = shuffled.copy(options = listOf(
             AdministrativeConversationOption("a", "노란색 엽전"), AdministrativeConversationOption("b", "파란색 엽전")))
         assertNull(SpokenCardAnswerParser.parse("엽전", shared))
         assertNull(SpokenCardAnswerParser.parse("1번 엽전", shared))
+    }
+    @Test fun distinctiveCompleteWordsAndParticleStrippedNounsAreNotAnswerSpecificAliases() {
+        val nouns = card.copy(options = listOf(
+            AdministrativeConversationOption("a", "쌀로 만든 떡"),
+            AdministrativeConversationOption("b", "메밀로 만든 국수"),
+            AdministrativeConversationOption("c", "콩으로 만든 두부")))
+        for ((text, expected) in listOf("쌀" to "a", "쌀이요" to "a", "1번 쌀" to "a", "메밀" to "b", "콩 3번" to "c"))
+            assertEquals(expected, SpokenCardAnswerParser.parse(text, nouns)?.choiceId, text)
+        for (text in listOf("만든", "1번 만든", "2번 쌀", "쌀 아니야", "쌀이라고 들었어"))
+            assertNull(SpokenCardAnswerParser.parse(text, nouns), text)
+        val shared = nouns.copy(options = listOf(
+            AdministrativeConversationOption("a", "예약해요", listOf("예약")),
+            AdministrativeConversationOption("b", "예약 없이 둘러보기")))
+        for (text in listOf("예약", "예약이요", "1번 예약", "보기"))
+            assertNull(SpokenCardAnswerParser.parse(text, shared), text)
+        val literal = nouns.copy(options = listOf(nouns.options[0], nouns.options[1], AdministrativeConversationOption("c", "1번 국도")))
+        assertEquals("c", SpokenCardAnswerParser.parse("1번 국도", literal)?.choiceId)
+        assertEquals("c", SpokenCardAnswerParser.parse("3번 1번 국도", literal)?.choiceId)
+        assertEquals("c", SpokenCardAnswerParser.parse("1번 국도 3번", literal)?.choiceId)
+        assertNull(SpokenCardAnswerParser.parse("2번 1번 국도", literal))
+        assertNull(SpokenCardAnswerParser.parse("1번 국도 2번", literal))
     }
     @Test fun koreanSecondNumberAndNaturalAnswerPredicatesWork() {
         for (heard in listOf("이번", "이 번", "2번이 정답이야", "두 번째가 정답인 것 같아", "저는 도토리묵인 것 같아요")) {
